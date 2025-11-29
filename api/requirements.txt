@@ -1,0 +1,19 @@
+fastapi
+uvicorn[standard]
+httpx
+python-dotenv
+websockets
+firebase-admin>=6.0.0
+pydantic-settings
+pydantic-ai[openai]
+openai
+logfire
+
+# Database
+psycopg2-binary
+sqlalchemy
+alembic
+
+# Redis
+redis
+aioredis

@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+env/
+.venv/
+ENV/
+
+# Environment Variables
+.env
+.env.*
+
+# Firebase (using env var instead)
+tastethreadsapp-firebase-adminsdk*.json
+serviceAccountKey.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation (keep README.md, exclude others)
+*.md
+!README.md
+
+# Test files
+test_*.py
+tests/
+pytest.ini
+.pytest_cache/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
