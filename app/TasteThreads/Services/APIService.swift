@@ -322,6 +322,95 @@ class APIService: ObservableObject {
             _ = try await self.authenticatedRequest(url: url, method: "DELETE", body: nil as String?)
         }
     }
+    
+    // MARK: - User Profile API
+    
+    func getUserProfile() -> AnyPublisher<UserProfileResponse, Error> {
+        return futureRequest {
+            guard let url = URL(string: "\(self.userBaseURL)/profile") else { throw URLError(.badURL) }
+            let data = try await self.authenticatedRequest(url: url)
+            return try JSONDecoder.iso8601.decode(UserProfileResponse.self, from: data)
+        }
+    }
+    
+    func updateUserProfile(name: String? = nil, bio: String? = nil, preferences: [String]? = nil,
+                           profileImageURL: String? = nil,
+                           firstName: String? = nil, lastName: String? = nil,
+                           phoneNumber: String? = nil, email: String? = nil) -> AnyPublisher<UserProfileResponse, Error> {
+        return futureRequest {
+            guard let url = URL(string: "\(self.userBaseURL)/profile") else { throw URLError(.badURL) }
+            let body = UpdateProfileRequest(
+                name: name,
+                bio: bio,
+                preferences: preferences,
+                profile_image_url: profileImageURL,
+                first_name: firstName,
+                last_name: lastName,
+                phone_number: phoneNumber,
+                email: email
+            )
+            let data = try await self.authenticatedRequest(url: url, method: "PUT", body: body)
+            return try JSONDecoder.iso8601.decode(UserProfileResponse.self, from: data)
+        }
+    }
+    
+    // MARK: - Reservations API
+    
+    /// Create a temporary hold on a reservation slot (expires in ~5 minutes)
+    func createReservationHold(
+        businessId: String,
+        date: String,
+        time: String,
+        covers: Int,
+        uniqueId: String
+    ) -> AnyPublisher<ReservationHoldResponse, Error> {
+        return futureRequest {
+            guard let url = URL(string: "\(self.aiBaseURL)/reservations/hold") else { throw URLError(.badURL) }
+            let body = ReservationHoldRequest(
+                business_id: businessId,
+                date: date,
+                time: time,
+                covers: covers,
+                unique_id: uniqueId
+            )
+            let data = try await self.authenticatedRequest(url: url, method: "POST", body: body)
+            return try JSONDecoder().decode(ReservationHoldResponse.self, from: data)
+        }
+    }
+    
+    /// Complete a reservation using a hold_id
+    func confirmReservation(
+        businessId: String,
+        holdId: String,
+        date: String,
+        time: String,
+        covers: Int,
+        firstName: String,
+        lastName: String,
+        email: String,
+        phone: String,
+        uniqueId: String,
+        notes: String? = nil
+    ) -> AnyPublisher<ReservationBookResponse, Error> {
+        return futureRequest {
+            guard let url = URL(string: "\(self.aiBaseURL)/reservations/book") else { throw URLError(.badURL) }
+            let body = ReservationBookRequest(
+                business_id: businessId,
+                hold_id: holdId,
+                date: date,
+                time: time,
+                covers: covers,
+                first_name: firstName,
+                last_name: lastName,
+                email: email,
+                phone: phone,
+                unique_id: uniqueId,
+                notes: notes
+            )
+            let data = try await self.authenticatedRequest(url: url, method: "POST", body: body)
+            return try JSONDecoder().decode(ReservationBookResponse.self, from: data)
+        }
+    }
 }
 
 extension JSONDecoder {
@@ -843,4 +932,79 @@ extension Location {
             ai_remark: aiRemark
         )
     }
+}
+
+// MARK: - User Profile Models
+
+struct UserProfileResponse: Codable {
+    let id: String
+    let name: String
+    let bio: String?
+    let profile_image_url: String?
+    let preferences: [String]?
+    let first_name: String?
+    let last_name: String?
+    let phone_number: String?
+    let email: String?
+    let created_at: Date?
+}
+
+struct UpdateProfileRequest: Codable {
+    let name: String?
+    let bio: String?
+    let preferences: [String]?
+    let profile_image_url: String?
+    let first_name: String?
+    let last_name: String?
+    let phone_number: String?
+    let email: String?
+    
+    init(name: String? = nil, bio: String? = nil, preferences: [String]? = nil, profile_image_url: String? = nil, 
+         first_name: String? = nil, last_name: String? = nil,
+         phone_number: String? = nil, email: String? = nil) {
+        self.name = name
+        self.bio = bio
+        self.preferences = preferences
+        self.profile_image_url = profile_image_url
+        self.first_name = first_name
+        self.last_name = last_name
+        self.phone_number = phone_number
+        self.email = email
+    }
+}
+
+// MARK: - Reservation API Models
+
+struct ReservationHoldRequest: Codable {
+    let business_id: String
+    let date: String
+    let time: String
+    let covers: Int
+    let unique_id: String
+}
+
+struct ReservationHoldResponse: Codable {
+    let hold_id: String
+    let reserve_url: String?
+    let expiration: String?
+}
+
+struct ReservationBookRequest: Codable {
+    let business_id: String
+    let hold_id: String
+    let date: String
+    let time: String
+    let covers: Int
+    let first_name: String
+    let last_name: String
+    let email: String
+    let phone: String
+    let unique_id: String
+    let notes: String?
+}
+
+struct ReservationBookResponse: Codable {
+    let reservation_id: String
+    let confirmation_url: String?
+    let notes: String?
 }

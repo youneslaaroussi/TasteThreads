@@ -14,7 +14,10 @@ struct RoomListView: View {
     @State private var showDeleteError = false
     @State private var navigationPath = NavigationPath()
     
-    // Computed properties for room filtering
+    // Warm theme colors
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    private let warmBackground = Color(red: 0.98, green: 0.96, blue: 0.93)
+    
     private var myRooms: [Room] {
         dataService.rooms.filter { room in
             room.members.contains(where: { $0.id == dataService.currentUser.id })
@@ -29,59 +32,101 @@ struct RoomListView: View {
     
     var body: some View {
         NavigationStack(path: $navigationPath) {
-            List {
-                // My Rooms Section
-                Section(header: Text("My Rooms")) {
-                    if myRooms.isEmpty {
-                        Text("No rooms found")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(myRooms) { room in
-                            Button {
-                                dataService.currentRoomId = room.id
-                                navigationPath.append("chatRoom")
-                            } label: {
-                                RoomRow(room: room, isOwner: dataService.isRoomOwner(room: room))
-                            }
-                            .buttonStyle(.plain)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if dataService.isRoomOwner(room: room) {
-                                    Button(role: .destructive) {
-                                        roomToDelete = room
-                                        showDeleteConfirmation = true
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                } else {
-                                    Button(role: .destructive) {
-                                        roomToDelete = room
-                                        showDeleteConfirmation = true
-                                    } label: {
-                                        Label("Leave", systemImage: "rectangle.portrait.and.arrow.right")
+            ScrollView {
+                VStack(spacing: 24) {
+                        // My Rooms Section
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("MY ROOMS")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.black.opacity(0.4))
+                                .padding(.horizontal, 4)
+                            
+                            if myRooms.isEmpty {
+                                VStack(spacing: 12) {
+                                    Image(systemName: "bubble.left.and.bubble.right")
+                                        .font(.system(size: 32))
+                                        .foregroundColor(warmAccent.opacity(0.4))
+                                    Text("No rooms yet")
+                                        .font(.system(size: 15))
+                                        .foregroundColor(.black.opacity(0.5))
+                                    Text("Create or join a room to start chatting")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.black.opacity(0.4))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 32)
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            } else {
+                                VStack(spacing: 0) {
+                                    ForEach(myRooms) { room in
+                                        Button {
+                                            dataService.currentRoomId = room.id
+                                            navigationPath.append("chatRoom")
+                                        } label: {
+                                            RoomRow(room: room, isOwner: dataService.isRoomOwner(room: room), accent: warmAccent)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                            if dataService.isRoomOwner(room: room) {
+                                                Button(role: .destructive) {
+                                                    roomToDelete = room
+                                                    showDeleteConfirmation = true
+                                                } label: {
+                                                    Label("Delete", systemImage: "trash")
+                                                }
+                                            } else {
+                                                Button(role: .destructive) {
+                                                    roomToDelete = room
+                                                    showDeleteConfirmation = true
+                                                } label: {
+                                                    Label("Leave", systemImage: "rectangle.portrait.and.arrow.right")
+                                                }
+                                            }
+                                        }
+                                        
+                                        if room.id != myRooms.last?.id {
+                                            Divider().padding(.leading, 72)
+                                        }
                                     }
                                 }
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                        }
+                        
+                        // Public Rooms Section
+                        if !publicRooms.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("PUBLIC ROOMS")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.black.opacity(0.4))
+                                    .padding(.horizontal, 4)
+                                
+                                VStack(spacing: 0) {
+                                    ForEach(publicRooms) { room in
+                                        Button {
+                                            dataService.currentRoomId = room.id
+                                            navigationPath.append("chatRoom")
+                                        } label: {
+                                            RoomRow(room: room, isOwner: false, accent: warmAccent)
+                                        }
+                                        .buttonStyle(.plain)
+                                        
+                                        if room.id != publicRooms.last?.id {
+                                            Divider().padding(.leading, 72)
+                                        }
+                                    }
+                                }
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
                             }
                         }
                     }
+                    .padding(16)
                 }
-                
-                // Public Rooms Section
-                if !publicRooms.isEmpty {
-                    Section(header: Text("Public Rooms")) {
-                        ForEach(publicRooms) { room in
-                            Button {
-                                dataService.currentRoomId = room.id
-                                navigationPath.append("chatRoom")
-                            } label: {
-                                RoomRow(room: room, isOwner: false)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
+            .background(warmBackground)
             .refreshable {
-                print("RoomListView: Refreshing rooms...")
                 dataService.fetchRooms()
             }
             .navigationDestination(for: String.self) { destination in
@@ -90,12 +135,6 @@ struct RoomListView: View {
                 }
             }
             .onAppear {
-                print("RoomListView: appeared. Current User ID: \(dataService.currentUser.id)")
-                print("RoomListView: All Rooms Count: \(dataService.rooms.count)")
-                let myRooms = dataService.rooms.filter { $0.members.contains(where: { $0.id == dataService.currentUser.id }) }
-                print("RoomListView: My Rooms Count: \(myRooms.count)")
-                
-                // Handle pending navigation from LocationDetailView mention
                 handlePendingNavigation()
             }
             .onChange(of: appState.shouldNavigateToRoom) { _, shouldNavigate in
@@ -115,33 +154,26 @@ struct RoomListView: View {
                         }
                     } label: {
                         Image(systemName: "plus")
-                            .font(.title2)
-                            .foregroundStyle(.primary)
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(warmAccent)
                     }
                 }
             }
             .sheet(isPresented: $showCreateRoom) {
-                NavigationView {
-                    Form {
-                        TextField("Room Name", text: $newRoomName)
-                        Toggle("Public Room", isOn: $isPublic)
+                CreateRoomSheet(
+                    roomName: $newRoomName,
+                    isPublic: $isPublic,
+                    accent: warmAccent,
+                    onCreate: {
+                        dataService.createRoom(name: newRoomName, isPublic: isPublic)
+                        showCreateRoom = false
+                        newRoomName = ""
+                        isPublic = false
+                    },
+                    onCancel: {
+                        showCreateRoom = false
                     }
-                    .navigationTitle("New Room")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") { showCreateRoom = false }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Create") {
-                                dataService.createRoom(name: newRoomName, isPublic: isPublic)
-                                showCreateRoom = false
-                                newRoomName = ""
-                                isPublic = false
-                            }
-                            .disabled(newRoomName.isEmpty)
-                        }
-                    }
-                }
+                )
                 .presentationDetents([.medium])
             }
             .alert("Join Room", isPresented: $showJoinRoom) {
@@ -150,8 +182,6 @@ struct RoomListView: View {
                     dataService.joinRoom(code: joinCode) { success in
                         if success {
                             joinCode = ""
-                        } else {
-                            // TODO: Show error
                         }
                     }
                 }
@@ -214,13 +244,81 @@ struct RoomListView: View {
             return
         }
         
-        // Set the current room and navigate
         dataService.currentRoomId = roomId
         appState.clearPendingNavigation()
         
-        // Small delay to ensure state is updated before navigation
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             navigationPath.append("chatRoom")
+        }
+    }
+}
+
+// MARK: - Create Room Sheet
+struct CreateRoomSheet: View {
+    @Binding var roomName: String
+    @Binding var isPublic: Bool
+    let accent: Color
+    let onCreate: () -> Void
+    let onCancel: () -> Void
+    
+    private let warmBackground = Color(red: 0.98, green: 0.96, blue: 0.93)
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                warmBackground.ignoresSafeArea()
+                
+                VStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Room Name")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.black.opacity(0.5))
+                        
+                        TextField("e.g. Friday Dinner Plans", text: $roomName)
+                            .font(.system(size: 16))
+                            .padding(16)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
+                    }
+                    
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Public Room")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.black)
+                            Text("Anyone can find and join")
+                                .font(.system(size: 13))
+                                .foregroundColor(.black.opacity(0.5))
+                        }
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: $isPublic)
+                            .tint(accent)
+                    }
+                    .padding(16)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    
+                    Spacer()
+                }
+                .padding(20)
+            }
+            .navigationTitle("New Room")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onCancel() }
+                        .foregroundColor(accent)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") { onCreate() }
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(roomName.isEmpty ? .black.opacity(0.3) : accent)
+                        .disabled(roomName.isEmpty)
+                }
+            }
         }
     }
 }
@@ -228,60 +326,59 @@ struct RoomListView: View {
 struct RoomRow: View {
     let room: Room
     var isOwner: Bool = false
+    var accent: Color = Color(red: 0.76, green: 0.42, blue: 0.32)
     
     var body: some View {
-        HStack {
+        HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(isOwner ? Color(red: 0.4, green: 0.3, blue: 0.9).opacity(0.15) : Color.blue.opacity(0.1))
+                    .fill(accent.opacity(0.12))
                     .frame(width: 48, height: 48)
                 
                 Text(String(room.name.prefix(1)))
-                    .font(.headline)
-                    .foregroundStyle(isOwner ? Color(red: 0.4, green: 0.3, blue: 0.9) : .blue)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(accent)
             }
             
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Text(room.name)
-                        .font(.headline)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
                     
                     if isOwner {
                         Text("Owner")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color(red: 0.4, green: 0.3, blue: 0.9))
+                            .background(accent)
                             .clipShape(Capsule())
                     }
                 }
                 
                 HStack(spacing: 4) {
-                    if room.isPublic {
-                        Image(systemName: "globe")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Image(systemName: "lock.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
+                    Image(systemName: room.isPublic ? "globe" : "lock.fill")
+                        .font(.system(size: 11))
                     Text("\(room.members.count) members")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13))
                 }
+                .foregroundColor(.black.opacity(0.5))
             }
             
             Spacer()
             
             if let lastMsg = room.messages.last {
                 Text(lastMsg.timestamp, style: .time)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12))
+                    .foregroundColor(.black.opacity(0.4))
             }
+            
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.black.opacity(0.3))
         }
-        .padding(.vertical, 4)
+        .padding(14)
     }
 }
 

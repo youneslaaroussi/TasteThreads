@@ -2,6 +2,7 @@ import os
 import logging
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -11,15 +12,19 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, update_typing_status
-from database import (
-    ChatSessionDB,
-    SavedLocationDB,
-    AIDiscoveryDB,
-    RoomDB,
-    get_db,
-)
+from database import ChatSessionDB, SavedLocationDB, AIDiscoveryDB, RoomDB, UserDB, get_db
 
 from pydantic_ai import Agent, RunContext
+
+from models.orchestrator_models import (
+    MAX_TOOL_ERRORS,
+    OrchestratorBusiness,
+    ReservationAction,
+    ReservationCoversRange,
+    ReservationTimeSlot,
+    OrchestratorChatOutput,
+    OrchestratorDeps,
+)
 
 # ============================================
 # Logging setup
@@ -212,79 +217,85 @@ def _extract_yelp_user_context(full_context: Dict[str, Any]) -> Optional[Dict[st
     return yelp_ctx or None
 
 
-# ================================================================
-# 1. Orchestrated Chat (Tess) - uses Yelp AI + Reservations tools
-# ================================================================
-
-
-class OrchestratorBusiness(BaseModel):
-    """Simplified business payload that matches the iOS `YelpBusiness` decoder shape."""
-
-    id: str
-    name: str
-    image_url: Optional[str] = None
-    url: Optional[str] = None
-    rating: Optional[float] = None
-    review_count: Optional[int] = None
-    price: Optional[str] = None
-    categories: Optional[List[Dict[str, Any]]] = None
-    location: Optional[Dict[str, Any]] = None
-    coordinates: Optional[Dict[str, Any]] = None
-    phone: Optional[str] = None
-    display_phone: Optional[str] = None
-
-
-class OrchestratorChatOutput(BaseModel):
-    """
-    Structured response returned to the backend caller.
-
-    This is what `rooms.trigger_ai_response` consumes to create the Tess message.
-    """
-
-    text: str = Field(description="Natural-language reply Tess should send into the room.")
-    businesses: List[OrchestratorBusiness] = Field(
-        default_factory=list,
-        description="Optional businesses to attach to the Tess message.",
-    )
-    yelp_chat_id: Optional[str] = Field(
-        default=None,
-        description="Yelp AI chat_id to persist for conversation continuity.",
-    )
-    actions: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="Optional high-level actions (e.g. reservation intents).",
-    )
-
-
-@dataclass
-class OrchestratorDeps:
-    """Per-run dependencies for the chat agent."""
+def _get_system_instructions() -> str:
+    """Build system instructions with current date/time context."""
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+    tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+    day_of_week = now.strftime("%A")
+    current_time = now.strftime("%H:%M")
     
-    user_id: str
-    room_id: Optional[str]
-    db: Session
-    user_context: Dict[str, Any]
-    chat_id: Optional[str]
-    last_yelp_response: Optional[Dict[str, Any]] = None
+    return (
+        "You are Tess, an AI assistant that helps groups plan outings using Yelp.\n\n"
+        
+        "## CURRENT DATE & TIME CONTEXT (CRITICAL)\n"
+        f"- **Today's date**: {today_str} ({day_of_week})\n"
+        f"- **Tomorrow's date**: {tomorrow_str}\n"
+        f"- **Current time**: {current_time}\n"
+        "- ALWAYS use these dates when the user says 'today', 'tonight', 'tomorrow', etc.\n"
+        "- NEVER use dates from 2023 or any past year. We are in 2025.\n"
+        "- For reservations, dates MUST be today or in the future. Past dates will fail.\n\n"
+        
+        "## ERROR HANDLING (CRITICAL)\n"
+        "- If a tool returns an error, DO NOT retry the same tool again. Respond to the user with what you know.\n"
+        "- If you receive an error with 'stop_retrying': true, you MUST immediately respond to the user without calling any more tools.\n"
+        "- If Yelp is unavailable, tell the user: 'I'm having trouble searching right now. Please try again in a moment.'\n"
+        "- NEVER call the same tool more than once if it returns an error.\n\n"
+        
+        "## GENERAL INSTRUCTIONS\n"
+        "- You ALWAYS think step-by-step using the tools you have.\n"
+        "- The user_context contains:\n"
+        "  - `user_name`: The user's display name\n"
+        "  - `user_bio`: A short bio about the user\n"
+        "  - `user_preferences`: A list of preference strings (e.g., 'vegetarian', 'loves Italian food', 'budget-friendly', 'outdoor seating')\n"
+        "  - `location`: Their current location with coordinates\n"
+        "  Use these to personalize your recommendations! If they prefer vegetarian, prioritize veggie-friendly places. If they love a cuisine, suggest it.\n"
+        "- For any request that involves finding, recommending, or searching for places, call `yelp_ai_search` once. If it fails, respond gracefully.\n"
+        "- You MUST NEVER fabricate or guess business objects. Do not invent JSON for businesses or their fields.\n"
+        "- The backend will attach real Yelp businesses based on your tool calls; focus on the natural-language reply and high-level actions only.\n"
+        "- Leave the `businesses` array EMPTY in your output. The backend handles it.\n"
+        "- ALWAYS return a valid OrchestratorChatOutput as your final result. `text` is required; `businesses` should be empty.\n"
+        "- If you call `yelp_ai_search`, set `yelp_chat_id` in your final output equal to the `chat_id` field from the last tool result.\n\n"
+        
+        "## RESERVATION FLOW\n"
+        "When users want to book a table, follow this flow:\n\n"
+        
+        "1. **Detect booking intent**: Words like 'book', 'reserve', 'reservation', 'get a table', 'make a booking'.\n"
+        "2. **Get availability**: Call `yelp_reservation_openings` with the business_id, date (YYYY-MM-DD), time (HH:MM), and covers.\n"
+        f"   - If user says 'tonight', use today's date: {today_str}\n"
+        f"   - If user says 'tomorrow', use: {tomorrow_str}\n"
+        "   - Default time to 19:00 if not specified. Default covers to 2 if not specified.\n"
+        "   - **IMPORTANT**: Date must be today or future. NEVER use past dates.\n"
+        "3. **Return a reservation_prompt action**: After getting openings, include a ReservationAction in your `actions` array:\n"
+        "   ```\n"
+        "   {\n"
+        "     'type': 'reservation_prompt',\n"
+        "     'business_id': '<id>',\n"
+        "     'business_name': '<name>',\n"
+        "     'available_times': [{'date': 'YYYY-MM-DD', 'time': 'HH:MM', 'credit_card_required': false}, ...],\n"
+        "     'covers_range': {'min_party_size': 1, 'max_party_size': 8},\n"
+        "     'requested_date': '<date user asked for>',\n"
+        "     'requested_time': '<time user asked for>',\n"
+        "     'requested_covers': <party size>\n"
+        "   }\n"
+        "   ```\n"
+        "   The iOS app will render this as a booking card with time slots.\n\n"
+        
+        "4. **Write friendly text**: Your `text` should be conversational, e.g.:\n"
+        "   'Great choice! I found some available times at [restaurant]. Pick a slot below or tap More Options for more dates.'\n\n"
+        
+        "5. **If openings fail or no availability**: Suggest trying a different time/date or checking Yelp directly.\n\n"
+        
+        "6. **Do NOT complete the booking yourself**: The iOS app handles hold creation and booking confirmation.\n"
+        "   Just return the reservation_prompt action with available times.\n"
+    )
 
 
 chat_agent = Agent[OrchestratorDeps, OrchestratorChatOutput](
     OPENAI_MODEL,
     deps_type=OrchestratorDeps,
     output_type=OrchestratorChatOutput,
-    instructions=(
-        "You are Tess, an AI assistant that helps groups plan outings using Yelp.\n"
-        "- You ALWAYS think step-by-step using the tools you have.\n"
-        "- The user_context describes their location, saved places, and preferences; use it to personalize tone and picks.\n"
-        "- For any request that involves finding, recommending, or searching for places, YOU MUST call `yelp_ai_search` at least once before answering.\n"
-        "- You MUST NEVER fabricate or guess business objects. Do not invent JSON for businesses or their fields.\n"
-        "- The backend will attach real Yelp businesses based on your tool calls; focus on the natural-language reply and high-level actions only.\n"
-        "- Leave the `businesses` array EMPTY in your output. The backend handles it.\n"
-        "- When the user clearly wants to check reservation availability for a specific business and time, "
-        "call `yelp_reservation_openings` and include the best options in your reply.\n"
-        "- ALWAYS return a valid OrchestratorChatOutput as your final result. `text` is required; `businesses` should be empty.\n"
-        "- If you call `yelp_ai_search`, set `yelp_chat_id` in your final output equal to the `chat_id` field from the last tool result.\n"
-    ),
+    instructions=_get_system_instructions,
 )
 
 
@@ -302,12 +313,24 @@ async def yelp_ai_search(
         The raw JSON response from https://api.yelp.com/ai/chat/v2.
     """
     with logfire.span("yelp_ai_search_tool", query=query):
-        logfire.info("Tool called: yelp_ai_search", query=query)
-        logger.info("[yelp_ai_search] TOOL CALLED with query=%s", query)
+        logfire.info("Tool called: yelp_ai_search", query=query, error_count=ctx.deps.tool_error_count)
+        logger.info("[yelp_ai_search] TOOL CALLED with query=%s (error_count=%d)", query, ctx.deps.tool_error_count)
+        
+        # Check if we've hit max errors - tell AI to stop retrying
+        if ctx.deps.tool_error_count >= MAX_TOOL_ERRORS:
+            logfire.warn("Max tool errors reached, stopping retries", error_count=ctx.deps.tool_error_count)
+            return {
+                "error": True,
+                "error_code": "MAX_ERRORS_REACHED",
+                "message": "I've encountered multiple issues with the search service. Please respond to the user with what you know, or suggest they try again later. DO NOT call this tool again.",
+                "stop_retrying": True,
+            }
+        
         if not YELP_API_KEY:
+            ctx.deps.tool_error_count += 1
             logfire.error("YELP_API_KEY not configured")
             logger.error("[yelp_ai_search] YELP_API_KEY is not configured!")
-            raise RuntimeError("YELP_API_KEY is not configured on the server.")
+            return {"error": True, "error_code": "CONFIG_ERROR", "message": "Yelp API is not configured on the server. Please respond to the user without search results."}
 
         url = "https://api.yelp.com/ai/chat/v2"
         headers = {
@@ -327,27 +350,62 @@ async def yelp_ai_search(
         logfire.debug("Sending payload to Yelp AI", payload=payload)
         logger.debug("[yelp_ai_search] Sending payload to Yelp AI: %s", payload)
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-            logfire.info("Yelp AI HTTP response", status_code=resp.status_code)
-            logger.debug("[yelp_ai_search] Yelp AI HTTP status: %s", resp.status_code)
-            resp.raise_for_status()
-            data = resp.json()
-            # Stash the last Yelp AI response so we can normalize businesses/chat_id
-            # in Python instead of relying on the model to copy everything.
-            ctx.deps.last_yelp_response = data
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+                logfire.info("Yelp AI HTTP response", status_code=resp.status_code)
+                logger.debug("[yelp_ai_search] Yelp AI HTTP status: %s", resp.status_code)
+                
+                # Handle HTTP errors gracefully
+                if resp.status_code >= 400:
+                    ctx.deps.tool_error_count += 1
+                    error_body = resp.text
+                    logfire.error("Yelp AI API error", status_code=resp.status_code, body=error_body, error_count=ctx.deps.tool_error_count)
+                    logger.error("[yelp_ai_search] Error %d: %s (error_count=%d)", resp.status_code, error_body, ctx.deps.tool_error_count)
+                    
+                    if resp.status_code >= 500:
+                        return {"error": True, "error_code": "YELP_SERVER_ERROR", "message": "Yelp's service is temporarily unavailable. Do not retry - respond to the user and let them know you're having trouble searching right now."}
+                    elif resp.status_code == 429:
+                        return {"error": True, "error_code": "RATE_LIMITED", "message": "Too many requests to Yelp. Do not retry - respond to the user based on what you already know."}
+                    elif resp.status_code == 401:
+                        return {"error": True, "error_code": "AUTH_ERROR", "message": "Yelp API authentication failed. Do not retry - respond to the user without search results."}
+                    else:
+                        return {"error": True, "error_code": "API_ERROR", "message": f"Yelp returned an error ({resp.status_code}). Do not retry - respond to the user."}
+                
+                # Success! Reset error count
+                ctx.deps.tool_error_count = 0
+                
+                data = resp.json()
+                # Stash the last Yelp AI response so we can normalize businesses/chat_id
+                # in Python instead of relying on the model to copy everything.
+                ctx.deps.last_yelp_response = data
 
-            entities = data.get("entities") or []
-            biz_count = 0
-            if entities:
-                biz_count = len((entities[0] or {}).get("businesses") or [])
-            logfire.info("Yelp AI returned", chat_id=data.get("chat_id"), business_count=biz_count)
-            logger.info(
-                "[yelp_ai_search] Yelp AI returned chat_id=%s, %d businesses",
-                data.get("chat_id"),
-                biz_count,
-            )
-            return data
+                entities = data.get("entities") or []
+                biz_count = 0
+                if entities:
+                    biz_count = len((entities[0] or {}).get("businesses") or [])
+                logfire.info("Yelp AI returned", chat_id=data.get("chat_id"), business_count=biz_count)
+                logger.info(
+                    "[yelp_ai_search] Yelp AI returned chat_id=%s, %d businesses",
+                    data.get("chat_id"),
+                    biz_count,
+                )
+                return data
+        except httpx.TimeoutException:
+            ctx.deps.tool_error_count += 1
+            logfire.error("Yelp AI request timed out", query=query, error_count=ctx.deps.tool_error_count)
+            logger.error("[yelp_ai_search] Request timed out for query: %s (error_count=%d)", query, ctx.deps.tool_error_count)
+            return {"error": True, "error_code": "TIMEOUT", "message": "The search took too long. Do not retry - respond to the user and suggest they try again later."}
+        except httpx.RequestError as e:
+            ctx.deps.tool_error_count += 1
+            logfire.error("Yelp AI request error", error=str(e), query=query, error_count=ctx.deps.tool_error_count)
+            logger.error("[yelp_ai_search] Request error: %s (error_count=%d)", str(e), ctx.deps.tool_error_count)
+            return {"error": True, "error_code": "NETWORK_ERROR", "message": "Unable to connect to Yelp. Do not retry - respond to the user and let them know you're having connection issues."}
+        except Exception as e:
+            ctx.deps.tool_error_count += 1
+            logfire.error("Unexpected error in yelp_ai_search", error=str(e), query=query, error_count=ctx.deps.tool_error_count)
+            logger.exception("[yelp_ai_search] Unexpected error: %s (error_count=%d)", str(e), ctx.deps.tool_error_count)
+            return {"error": True, "error_code": "UNKNOWN_ERROR", "message": "An unexpected error occurred. Do not retry - respond to the user."}
 
 
 @chat_agent.tool_plain
@@ -362,11 +420,11 @@ async def yelp_reservation_openings(
 
     Args:
         business_id: Yelp business id or alias (must support Yelp Reservations).
-        date: Reservation date in YYYY-MM-DD.
+        date: Reservation date in YYYY-MM-DD. MUST be today or a future date.
         time: Desired time in HH:MM (24h).
         covers: Party size from 1–10.
     Returns:
-        Raw JSON from GET /v3/bookings/{business_id}/openings.
+        Raw JSON from GET /v3/bookings/{business_id}/openings, or an error dict if the request fails.
     """
     with logfire.span("yelp_reservation_openings_tool", business_id=business_id, date=date, time=time, covers=covers):
         logfire.info("Tool called: yelp_reservation_openings", business_id=business_id, date=date, time=time, covers=covers)
@@ -377,10 +435,25 @@ async def yelp_reservation_openings(
             time,
             covers,
         )
+        
+        # Validate date is not in the past
+        try:
+            requested_date = datetime.strptime(date, "%Y-%m-%d").date()
+            today = datetime.now().date()
+            if requested_date < today:
+                error_msg = f"Cannot book reservations for past dates. You requested {date} but today is {today.isoformat()}. Please use today's date or a future date."
+                logfire.warn("Reservation date in past", requested=date, today=today.isoformat())
+                logger.warning("[yelp_reservation_openings] Date %s is in the past (today=%s)", date, today.isoformat())
+                return {"error": True, "error_code": "DATE_IN_PAST", "message": error_msg}
+        except ValueError as e:
+            error_msg = f"Invalid date format: {date}. Expected YYYY-MM-DD format."
+            logfire.error("Invalid date format", date=date, error=str(e))
+            return {"error": True, "error_code": "INVALID_DATE_FORMAT", "message": error_msg}
+        
         if not YELP_API_KEY:
             logfire.error("YELP_API_KEY not configured")
             logger.error("[yelp_reservation_openings] YELP_API_KEY is not configured!")
-            raise RuntimeError("YELP_API_KEY is not configured on the server.")
+            return {"error": True, "error_code": "CONFIG_ERROR", "message": "Yelp API is not configured on the server."}
 
         url = f"https://api.yelp.com/v3/bookings/{business_id}/openings"
         params = {
@@ -398,7 +471,30 @@ async def yelp_reservation_openings(
             resp = await client.get(url, params=params, headers=headers)
             logfire.info("Yelp Reservations HTTP response", status_code=resp.status_code)
             logger.debug("[yelp_reservation_openings] HTTP status: %s", resp.status_code)
-            resp.raise_for_status()
+            
+            # Handle errors gracefully instead of raising
+            if resp.status_code >= 400:
+                error_body = resp.text
+                logfire.error("Yelp Reservations API error", status_code=resp.status_code, body=error_body)
+                logger.error("[yelp_reservation_openings] Error %d: %s", resp.status_code, error_body)
+                
+                # Parse common Yelp error codes
+                error_msg = f"Yelp returned an error ({resp.status_code})"
+                try:
+                    error_json = resp.json()
+                    error_code = error_json.get("error", {}).get("code", "UNKNOWN")
+                    error_description = error_json.get("error", {}).get("description", error_body)
+                    error_msg = f"{error_code}: {error_description}"
+                except Exception:
+                    pass
+                
+                if resp.status_code == 404:
+                    return {"error": True, "error_code": "BUSINESS_NOT_FOUND", "message": f"This restaurant ({business_id}) doesn't support Yelp Reservations or wasn't found."}
+                elif resp.status_code == 400:
+                    return {"error": True, "error_code": "INVALID_REQUEST", "message": f"Invalid reservation request: {error_msg}. Check the date, time, and party size."}
+                else:
+                    return {"error": True, "error_code": "API_ERROR", "message": error_msg}
+            
             data = resp.json()
             reservation_count = len(data.get("reservation_times") or [])
             logfire.info("Yelp Reservations returned", reservation_times_count=reservation_count)
@@ -440,6 +536,315 @@ async def get_reservation_openings(
     except Exception as e:
         print(f"Reservations openings error: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch reservation openings")
+
+
+# --- Reservation Hold Tool & Endpoint ---
+
+@chat_agent.tool_plain
+async def yelp_reservation_hold(
+    business_id: str,
+    date: str,
+    time: str,
+    covers: int,
+    unique_id: str,
+) -> Dict[str, Any]:
+    """
+    Create a temporary hold on a reservation slot (expires in ~5 minutes).
+    
+    Args:
+        business_id: Yelp business id or alias.
+        date: Reservation date in YYYY-MM-DD.
+        time: Reservation time in HH:MM (24h).
+        covers: Party size from 1-10.
+        unique_id: Device/user unique identifier for Yelp API.
+    Returns:
+        Raw JSON from POST /v3/bookings/{business_id}/holds including hold_id and reserve_url.
+    """
+    with logfire.span("yelp_reservation_hold_tool", business_id=business_id, date=date, time=time, covers=covers):
+        logfire.info("Tool called: yelp_reservation_hold", business_id=business_id, date=date, time=time, covers=covers)
+        logger.info(
+            "[yelp_reservation_hold] TOOL CALLED business_id=%s date=%s time=%s covers=%d",
+            business_id, date, time, covers,
+        )
+        if not YELP_API_KEY:
+            logfire.error("YELP_API_KEY not configured")
+            return {"error": True, "error_code": "CONFIG_ERROR", "message": "Yelp API is not configured on the server."}
+
+        url = f"https://api.yelp.com/v3/bookings/{business_id}/holds"
+        headers = {
+            "Authorization": f"Bearer {YELP_API_KEY}",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        }
+        
+        data = {
+            "date": date,
+            "time": time,
+            "covers": covers,
+            "unique_id": unique_id,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(url, data=data, headers=headers)
+                logfire.info("Yelp Hold HTTP response", status_code=resp.status_code)
+                logger.debug("[yelp_reservation_hold] HTTP status: %s", resp.status_code)
+                
+                # Handle HTTP errors gracefully
+                if resp.status_code >= 400:
+                    error_body = resp.text
+                    logfire.error("Yelp Hold API error", status_code=resp.status_code, body=error_body)
+                    logger.error("[yelp_reservation_hold] Error %d: %s", resp.status_code, error_body)
+                    
+                    error_msg = f"Unable to hold this reservation slot"
+                    try:
+                        error_json = resp.json()
+                        error_code = error_json.get("error", {}).get("code", "UNKNOWN")
+                        error_description = error_json.get("error", {}).get("description", "")
+                        if error_description:
+                            error_msg = error_description
+                    except Exception:
+                        pass
+                    
+                    if resp.status_code == 404:
+                        return {"error": True, "error_code": "BUSINESS_NOT_FOUND", "message": f"This restaurant doesn't support Yelp Reservations."}
+                    elif resp.status_code >= 500:
+                        return {"error": True, "error_code": "YELP_SERVER_ERROR", "message": "Yelp's reservation service is temporarily unavailable. Please try again."}
+                    else:
+                        return {"error": True, "error_code": "HOLD_FAILED", "message": error_msg}
+                
+                result = resp.json()
+                logfire.info("Yelp Hold created", hold_id=result.get("hold_id"))
+                logger.info("[yelp_reservation_hold] Created hold_id=%s", result.get("hold_id"))
+                return result
+        except httpx.TimeoutException:
+            logfire.error("Yelp Hold request timed out", business_id=business_id)
+            return {"error": True, "error_code": "TIMEOUT", "message": "The request timed out. Please try again."}
+        except httpx.RequestError as e:
+            logfire.error("Yelp Hold request error", error=str(e), business_id=business_id)
+            return {"error": True, "error_code": "NETWORK_ERROR", "message": "Unable to connect to Yelp. Please check your connection."}
+        except Exception as e:
+            logfire.error("Unexpected error in yelp_reservation_hold", error=str(e), business_id=business_id)
+            return {"error": True, "error_code": "UNKNOWN_ERROR", "message": "An unexpected error occurred. Please try again."}
+
+
+class ReservationHoldRequest(BaseModel):
+    business_id: str = Field(description="Yelp business id or alias")
+    date: str = Field(description="Reservation date in YYYY-MM-DD")
+    time: str = Field(description="Reservation time in HH:MM (24h)")
+    covers: int = Field(default=2, ge=1, le=10, description="Party size from 1 to 10")
+    unique_id: str = Field(description="Device/user unique identifier")
+
+
+class HoldResponse(BaseModel):
+    hold_id: str
+    reserve_url: Optional[str] = None
+    expiration: Optional[str] = None
+
+
+@router.post("/reservations/hold", response_model=HoldResponse)
+async def create_reservation_hold(
+    request: ReservationHoldRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Create a temporary hold on a reservation slot.
+    The hold expires in approximately 5 minutes.
+    """
+    try:
+        data = await yelp_reservation_hold(
+            business_id=request.business_id,
+            date=request.date,
+            time=request.time,
+            covers=request.covers,
+            unique_id=request.unique_id,
+        )
+        return HoldResponse(
+            hold_id=data.get("hold_id", ""),
+            reserve_url=data.get("reserve_url"),
+            expiration=data.get("expiration"),
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=str(e.response.text))
+    except Exception as e:
+        print(f"Reservation hold error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create reservation hold")
+
+
+# --- Reservation Booking Tool & Endpoint ---
+
+@chat_agent.tool_plain
+async def yelp_reservation_book(
+    business_id: str,
+    hold_id: str,
+    date: str,
+    time: str,
+    covers: int,
+    first_name: str,
+    last_name: str,
+    email: str,
+    phone: str,
+    unique_id: str,
+    notes: str = "",
+) -> Dict[str, Any]:
+    """
+    Complete a reservation booking using a hold_id.
+    
+    Args:
+        business_id: Yelp business id or alias.
+        hold_id: The hold_id from a previous hold request.
+        date: Reservation date in YYYY-MM-DD (must match hold).
+        time: Reservation time in HH:MM (must match hold).
+        covers: Party size (must match hold).
+        first_name: Guest's first name.
+        last_name: Guest's last name.
+        email: Guest's email address.
+        phone: Guest's phone number.
+        unique_id: Device/user unique identifier (must match hold).
+        notes: Optional special requests or notes.
+    Returns:
+        Raw JSON from POST /v3/bookings/{business_id}/reservations including reservation_id.
+    """
+    with logfire.span("yelp_reservation_book_tool", business_id=business_id, hold_id=hold_id):
+        logfire.info("Tool called: yelp_reservation_book", business_id=business_id, hold_id=hold_id)
+        logger.info(
+            "[yelp_reservation_book] TOOL CALLED business_id=%s hold_id=%s",
+            business_id, hold_id,
+        )
+        if not YELP_API_KEY:
+            logfire.error("YELP_API_KEY not configured")
+            return {"error": True, "error_code": "CONFIG_ERROR", "message": "Yelp API is not configured on the server."}
+
+        url = f"https://api.yelp.com/v3/bookings/{business_id}/reservations"
+        headers = {
+            "Authorization": f"Bearer {YELP_API_KEY}",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        }
+        
+        data = {
+            "date": date,
+            "time": time,
+            "covers": covers,
+            "hold_id": hold_id,
+            "unique_id": unique_id,
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "phone": phone,
+        }
+        if notes:
+            data["notes"] = notes
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(url, data=data, headers=headers)
+                logfire.info("Yelp Reservation HTTP response", status_code=resp.status_code)
+                logger.debug("[yelp_reservation_book] HTTP status: %s", resp.status_code)
+                
+                # Handle HTTP errors gracefully
+                if resp.status_code >= 400:
+                    error_body = resp.text
+                    logfire.error("Yelp Reservation API error", status_code=resp.status_code, body=error_body)
+                    logger.error("[yelp_reservation_book] Error %d: %s", resp.status_code, error_body)
+                    
+                    error_msg = "Unable to complete the reservation"
+                    error_code = "BOOKING_FAILED"
+                    try:
+                        error_json = resp.json()
+                        api_error_code = error_json.get("error", {}).get("code", "UNKNOWN")
+                        error_description = error_json.get("error", {}).get("description", "")
+                        if error_description:
+                            error_msg = error_description
+                        
+                        # Map specific Yelp error codes to user-friendly messages
+                        if "CREDIT_CARD_REQUIRED" in api_error_code:
+                            return {"error": True, "error_code": "CREDIT_CARD_REQUIRED", "message": "This reservation requires a credit card. Please book directly on Yelp."}
+                        elif "SLOT_NO_LONGER_AVAILABLE" in api_error_code:
+                            return {"error": True, "error_code": "SLOT_UNAVAILABLE", "message": "This time slot is no longer available. Please try another time."}
+                        elif "HOLD_NOT_FOUND" in api_error_code or "INVALID_HOLD_ID" in api_error_code:
+                            return {"error": True, "error_code": "HOLD_EXPIRED", "message": "Your hold has expired. Please start over and select a new time."}
+                    except Exception:
+                        pass
+                    
+                    return {"error": True, "error_code": error_code, "message": error_msg}
+                
+                result = resp.json()
+                logfire.info("Yelp Reservation created", reservation_id=result.get("reservation_id"))
+                logger.info("[yelp_reservation_book] Created reservation_id=%s", result.get("reservation_id"))
+                return result
+        except httpx.TimeoutException:
+            logfire.error("Yelp Reservation request timed out", business_id=business_id)
+            return {"error": True, "error_code": "TIMEOUT", "message": "The request timed out. Please try again."}
+        except httpx.RequestError as e:
+            logfire.error("Yelp Reservation request error", error=str(e), business_id=business_id)
+            return {"error": True, "error_code": "NETWORK_ERROR", "message": "Unable to connect to Yelp. Please check your connection."}
+        except Exception as e:
+            logfire.error("Unexpected error in yelp_reservation_book", error=str(e), business_id=business_id)
+            return {"error": True, "error_code": "UNKNOWN_ERROR", "message": "An unexpected error occurred. Please try again."}
+
+
+class ReservationBookRequest(BaseModel):
+    business_id: str = Field(description="Yelp business id or alias")
+    hold_id: str = Field(description="Hold ID from the hold endpoint")
+    date: str = Field(description="Reservation date in YYYY-MM-DD")
+    time: str = Field(description="Reservation time in HH:MM (24h)")
+    covers: int = Field(default=2, ge=1, le=10, description="Party size from 1 to 10")
+    first_name: str = Field(description="Guest's first name")
+    last_name: str = Field(description="Guest's last name")
+    email: str = Field(description="Guest's email address")
+    phone: str = Field(description="Guest's phone number")
+    unique_id: str = Field(description="Device/user unique identifier")
+    notes: Optional[str] = Field(default="", description="Special requests or notes")
+
+
+class ReservationResponse(BaseModel):
+    reservation_id: str
+    confirmation_url: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.post("/reservations/book", response_model=ReservationResponse)
+async def complete_reservation(
+    request: ReservationBookRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Complete a reservation using a hold_id.
+    Must be called within ~5 minutes of creating the hold.
+    """
+    try:
+        data = await yelp_reservation_book(
+            business_id=request.business_id,
+            hold_id=request.hold_id,
+            date=request.date,
+            time=request.time,
+            covers=request.covers,
+            first_name=request.first_name,
+            last_name=request.last_name,
+            email=request.email,
+            phone=request.phone,
+            unique_id=request.unique_id,
+            notes=request.notes or "",
+        )
+        return ReservationResponse(
+            reservation_id=data.get("reservation_id", ""),
+            confirmation_url=data.get("confirmation_url"),
+            notes=data.get("notes"),
+        )
+    except httpx.HTTPStatusError as e:
+        error_detail = str(e.response.text)
+        # Parse common Yelp error codes
+        if "CREDIT_CARD_REQUIRED" in error_detail:
+            raise HTTPException(status_code=402, detail="This reservation requires a credit card. Please book directly on Yelp.")
+        elif "SLOT_NO_LONGER_AVAILABLE" in error_detail:
+            raise HTTPException(status_code=409, detail="This time slot is no longer available. Please try another time.")
+        elif "HOLD_NOT_FOUND" in error_detail or "INVALID_HOLD_ID" in error_detail:
+            raise HTTPException(status_code=404, detail="Hold expired or not found. Please start over.")
+        raise HTTPException(status_code=e.response.status_code, detail=error_detail)
+    except Exception as e:
+        print(f"Reservation booking error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to complete reservation")
 
 
 class OrchestratorChatRequest(BaseModel):
@@ -546,19 +951,61 @@ async def run_orchestrator_chat(
                         logfire.error("Error building history", error=str(e), room_id=room_id)
                         logger.exception("[run_orchestrator_chat] Error building history for room %s", room_id)
 
+            # Fetch user preferences from database
+            db_user = db.query(UserDB).filter(UserDB.id == user_id).first()
+            user_preferences = []
+            user_name = None
+            user_bio = None
+            if db_user:
+                user_preferences = db_user.preferences or []
+                user_name = db_user.name
+                user_bio = db_user.bio
+            
+            # Enrich user_context with preferences
+            enriched_context = user_context or {}
+            enriched_context["user_name"] = user_name
+            enriched_context["user_bio"] = user_bio
+            enriched_context["user_preferences"] = user_preferences
+            
             deps = OrchestratorDeps(
                 user_id=user_id,
                 room_id=room_id,
                 db=db,
-                user_context=user_context or {},
+                user_context=enriched_context,
                 chat_id=chat_id,
             )
 
-            with logfire.span("run_chat_agent"):
-                logfire.info("Calling chat_agent.run()")
-                logger.info("[run_orchestrator_chat] Calling chat_agent.run() ...")
-                result = await chat_agent.run(user_prompt, deps=deps)
-                output = result.output
+            try:
+                with logfire.span("run_chat_agent"):
+                    logfire.info("Calling chat_agent.run()")
+                    logger.info("[run_orchestrator_chat] Calling chat_agent.run() ...")
+                    result = await chat_agent.run(user_prompt, deps=deps)
+                    output = result.output
+            except Exception as agent_error:
+                # Catch any errors from the agent (including tool errors) and return a friendly message
+                logfire.error("Agent execution error", error=str(agent_error), error_type=type(agent_error).__name__)
+                logger.exception("[run_orchestrator_chat] Agent execution error: %s", agent_error)
+                
+                # Return a user-friendly error message instead of crashing
+                error_message = "I ran into a temporary issue while searching. Please try again in a moment."
+                
+                # Provide more specific messages for known error types
+                error_str = str(agent_error).lower()
+                if "timeout" in error_str:
+                    error_message = "The search took too long. Please try again with a simpler request."
+                elif "connection" in error_str or "network" in error_str:
+                    error_message = "I'm having trouble connecting to my search service. Please try again in a moment."
+                elif "rate limit" in error_str or "429" in error_str:
+                    error_message = "I've been getting a lot of requests. Please wait a moment and try again."
+                elif "500" in error_str or "server error" in error_str:
+                    error_message = "My search service is temporarily unavailable. Please try again in a moment."
+                
+                return OrchestratorChatOutput(
+                    text=error_message,
+                    businesses=[],
+                    actions=[],
+                    yelp_chat_id=None,
+                )
 
             logfire.info(
                 "Agent returned",

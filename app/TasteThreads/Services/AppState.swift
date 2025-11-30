@@ -14,14 +14,22 @@ class AppState: ObservableObject {
     @Published var pendingRoomId: String? = nil  // Room to auto-navigate to
     @Published var shouldNavigateToRoom: Bool = false
     
-    func navigateToChat(withMention name: String) {
-        chatDraft = "@\(name) "
+    func navigateToChat(withMention name: String, address: String? = nil) {
+        if let address = address, !address.isEmpty {
+            chatDraft = "\(name) - \(address) "
+        } else {
+            chatDraft = "\(name) "
+        }
         selectedTab = .chat
     }
     
     /// Navigate to a specific chat room with a business mention
-    func navigateToChatRoom(roomId: String, businessName: String) {
-        chatDraft = "@\(businessName) "
+    func navigateToChatRoom(roomId: String, businessName: String, address: String? = nil, yelpId: String? = nil) {
+        if let address = address, !address.isEmpty {
+            chatDraft = "\(businessName) - \(address) "
+        } else {
+            chatDraft = "\(businessName) "
+        }
         pendingRoomId = roomId
         shouldNavigateToRoom = true
         selectedTab = .chat

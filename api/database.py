@@ -44,7 +44,19 @@ class UserDB(Base):
     
     id = Column(String, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    bio = Column(String, nullable=True)  # User's bio/description
     avatar_url = Column(String, nullable=True)
+    profile_image_url = Column(String, nullable=True)  # User's uploaded profile picture (base64 data URL or remote URL)
+    
+    # User preferences (cuisine types, dietary restrictions, etc.)
+    preferences = Column(JSONB, nullable=True, default=dict)  # {"cuisines": [], "dietary": [], "priceRange": []}
+    
+    # Contact fields for reservations
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    phone_number = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    
     whatsapp_id = Column(String, nullable=True, unique=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

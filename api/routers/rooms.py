@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, Body, Depends
-from pydantic import BaseModel
 from typing import List, Optional, Dict, Callable, Awaitable, Any
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -7,6 +6,14 @@ import uuid
 import auth
 from auth import get_current_user, get_optional_user, write_message_to_firestore, update_typing_status
 from database import get_db, RoomDB, UserDB, ChatSessionDB
+from models.room_models import (
+    User,
+    Message,
+    Room,
+    CreateRoomRequest,
+    JoinRoomRequest,
+    SendMessageRequest,
+)
 from routers.orchestrator import run_orchestrator_chat
 
 router = APIRouter()
@@ -14,55 +21,9 @@ router = APIRouter()
 # AI User ID (consistent across the app)
 AI_USER_ID = "00000000-0000-0000-0000-000000000001"
 
-# --- Models ---
-
-class User(BaseModel):
-    id: str
-    name: str
-    avatar_url: Optional[str] = None
-    is_current_user: bool = False # Helper for frontend, backend ignores
-
-class Message(BaseModel):
-    model_config = {"json_encoders": {datetime: lambda v: v.isoformat() + 'Z' if v.tzinfo is None else v.isoformat()}}
-    
-    id: str
-    sender_id: str
-    content: str
-    timestamp: datetime
-    type: str = "text"
-    related_item_id: Optional[str] = None
-    reactions: Dict[str, List[str]] = {}
-    quick_replies: Optional[List[str]] = None
-    map_coordinates: Optional[dict] = None
-    businesses: Optional[List[dict]] = None
-
-class Room(BaseModel):
-    model_config = {"json_encoders": {datetime: lambda v: v.isoformat() + 'Z' if v.tzinfo is None else v.isoformat()}}
-    
-    id: str
-    name: str
-    members: List[User]
-    messages: List[Message] = []
-    itinerary: List[dict] = []
-    is_public: bool
-    join_code: str
-    owner_id: str
-
-class CreateRoomRequest(BaseModel):
-    name: str
-    is_public: bool
-
-class JoinRoomRequest(BaseModel):
-    code: str
-
-class SendMessageRequest(BaseModel):
-    content: str
-    type: str = "text"
-    user_context: Optional[Dict[str, Any]] = None  # Contextual data for AI (location, preferences, etc.)
-
 # --- Helper Functions ---
 
-def db_room_to_pydantic(db_room: RoomDB) -> Room:
+def db_room_to_pydantic(db_room: RoomDB, db: Session = None) -> Room:
     """Convert database Room to Pydantic Room model"""
     # Convert message timestamps from ISO strings to datetime objects
     messages = []
@@ -79,10 +40,26 @@ def db_room_to_pydantic(db_room: RoomDB) -> Room:
             # Skip malformed messages instead of failing entirely
             continue
     
+    # Refresh member info from database to get up-to-date names and profile images
+    members = []
+    for member in db_room.members:
+        member_data = dict(member)
+        if db and member_data.get('id') != AI_USER_ID:
+            # Look up current user info from database
+            db_user = db.query(UserDB).filter(UserDB.id == member_data['id']).first()
+            if db_user:
+                # Update name if the stored one is generic or outdated
+                if db_user.name and db_user.name != "User":
+                    member_data['name'] = db_user.name
+                # Update profile image URL
+                if db_user.profile_image_url:
+                    member_data['profile_image_url'] = db_user.profile_image_url
+        members.append(User(**member_data))
+    
     return Room(
         id=db_room.id,
         name=db_room.name,
-        members=[User(**member) for member in db_room.members],
+        members=members,
         messages=messages,
         itinerary=db_room.itinerary,
         is_public=db_room.is_public,
@@ -91,13 +68,25 @@ def db_room_to_pydantic(db_room: RoomDB) -> Room:
     )
 
 def ensure_user_exists(db: Session, user_id: str, user_name: str, avatar_url: Optional[str] = None):
-    """Ensure user exists in database"""
+    """Ensure user exists in database and return their profile info"""
     user = db.query(UserDB).filter(UserDB.id == user_id).first()
     if not user:
         user = UserDB(id=user_id, name=user_name, avatar_url=avatar_url)
         db.add(user)
         db.commit()
     return user
+
+def get_user_profile_image(db: Session, user_id: str) -> Optional[str]:
+    """Get user's profile image URL from database"""
+    user = db.query(UserDB).filter(UserDB.id == user_id).first()
+    return user.profile_image_url if user else None
+
+def get_user_display_name(db: Session, user_id: str, fallback: str = "User") -> str:
+    """Get user's display name from database, with fallback"""
+    user = db.query(UserDB).filter(UserDB.id == user_id).first()
+    if user and user.name and user.name != "User":
+        return user.name
+    return fallback
 
 # --- Endpoints ---
 
@@ -128,7 +117,7 @@ async def get_public_rooms(user: dict = Depends(get_current_user), db: Session =
     print(f"API: get_public_rooms called by {user.get('uid')}")
     public_rooms = db.query(RoomDB).filter(RoomDB.is_public == True).all()
     print(f"API: Returning {len(public_rooms)} public rooms")
-    return [db_room_to_pydantic(room) for room in public_rooms]
+    return [db_room_to_pydantic(room, db) for room in public_rooms]
 
 @router.get("/mine", response_model=List[Room])
 async def get_my_rooms(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -143,7 +132,7 @@ async def get_my_rooms(user: dict = Depends(get_current_user), db: Session = Dep
     my_rooms = [room for room in all_rooms if any(m['id'] == user_id for m in room.members)]
     
     print(f"API: Returning {len(my_rooms)} rooms for user {user_id}")
-    return [db_room_to_pydantic(room) for room in my_rooms]
+    return [db_room_to_pydantic(room, db) for room in my_rooms]
 
 @router.get("/", response_model=List[Room])
 async def get_rooms(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -157,7 +146,7 @@ async def get_rooms(user: dict = Depends(get_current_user), db: Session = Depend
     filtered_rooms = [room for room in all_rooms if any(m['id'] == user_id for m in room.members)]
     
     print(f"API: Returning {len(filtered_rooms)} rooms for user {user_id}")
-    return [db_room_to_pydantic(room) for room in filtered_rooms]
+    return [db_room_to_pydantic(room, db) for room in filtered_rooms]
 
 @router.post("/", response_model=Room)
 async def create_room(request: CreateRoomRequest, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -165,18 +154,24 @@ async def create_room(request: CreateRoomRequest, user: dict = Depends(get_curre
     Create a new room. Requires authentication.
     """
     owner_id = user['uid']
-    owner_name = user.get('name', 'User')
+    fallback_name = user.get('name', user.get('email', 'User'))
     
     print(f"API: create_room called with name='{request.name}', owner_id='{owner_id}'")
     
     # Ensure owner exists in database
-    ensure_user_exists(db, owner_id, owner_name)
+    ensure_user_exists(db, owner_id, fallback_name)
+    
+    # Get owner's actual display name from profile (not Firebase token)
+    owner_name = get_user_display_name(db, owner_id, fallback_name)
+    
+    # Get owner's profile image
+    owner_profile_image = get_user_profile_image(db, owner_id)
     
     room_id = str(uuid.uuid4())
     join_code = str(uuid.uuid4())[:6].upper()
     
     # Create member objects
-    owner = User(id=owner_id, name=owner_name, is_current_user=True)
+    owner = User(id=owner_id, name=owner_name, profile_image_url=owner_profile_image, is_current_user=True)
     ai_user = User(id=AI_USER_ID, name="Tess (AI)", is_current_user=False)
     
     # Create system message
@@ -215,7 +210,7 @@ async def create_room(request: CreateRoomRequest, user: dict = Depends(get_curre
     })
     
     print(f"API: Created room {room_id} with join_code {join_code}")
-    return db_room_to_pydantic(new_room)
+    return db_room_to_pydantic(new_room, db)
 
 @router.post("/join", response_model=Room)
 async def join_room(request: JoinRoomRequest, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -223,12 +218,15 @@ async def join_room(request: JoinRoomRequest, user: dict = Depends(get_current_u
     Join a room by code. Requires authentication.
     """
     user_id = user['uid']
-    user_name = user.get('name', 'User')
+    fallback_name = user.get('name', user.get('email', 'User'))
     
     print(f"API: join_room called with code='{request.code}', user_id='{user_id}'")
     
     # Ensure user exists in database
-    ensure_user_exists(db, user_id, user_name)
+    ensure_user_exists(db, user_id, fallback_name)
+    
+    # Get user's actual display name from profile
+    user_name = get_user_display_name(db, user_id, fallback_name)
     
     room = db.query(RoomDB).filter(RoomDB.join_code == request.code).first()
     if not room:
@@ -239,8 +237,11 @@ async def join_room(request: JoinRoomRequest, user: dict = Depends(get_current_u
     is_member = any(m['id'] == user_id for m in room.members)
     
     if not is_member:
+        # Get user's profile image
+        user_profile_image = get_user_profile_image(db, user_id)
+        
         # Add user to members
-        user_obj = User(id=user_id, name=user_name, is_current_user=True)
+        user_obj = User(id=user_id, name=user_name, profile_image_url=user_profile_image, is_current_user=True)
         room.members.append(user_obj.model_dump())
         
         # Add join message
@@ -271,7 +272,7 @@ async def join_room(request: JoinRoomRequest, user: dict = Depends(get_current_u
     else:
         print(f"API: User {user_id} already in room {room.id}")
     
-    return db_room_to_pydantic(room)
+    return db_room_to_pydantic(room, db)
 
 @router.get("/{room_id}", response_model=Room)
 async def get_room(room_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -288,7 +289,7 @@ async def get_room(room_id: str, user: dict = Depends(get_current_user), db: Ses
     if not room.is_public and not is_member:
         raise HTTPException(status_code=403, detail="Not a member of this room")
     
-    return db_room_to_pydantic(room)
+    return db_room_to_pydantic(room, db)
 
 @router.delete("/{room_id}")
 async def delete_room(room_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -386,7 +387,11 @@ async def send_message(room_id: str, request: SendMessageRequest, user: dict = D
         raise HTTPException(status_code=404, detail="Room not found")
     
     sender_id = user['uid']
-    sender_name = user.get('name', 'User')
+    fallback_name = user.get('name', user.get('email', 'User'))
+    
+    # Ensure user exists and get their actual display name from profile
+    ensure_user_exists(db, sender_id, fallback_name)
+    sender_name = get_user_display_name(db, sender_id, fallback_name)
     
     print(f"API: send_message called - room_id={room_id}, sender_id={sender_id}, is_public={room.is_public}")
     
@@ -397,7 +402,9 @@ async def send_message(room_id: str, request: SendMessageRequest, user: dict = D
     # Auto-add user to public rooms if they're not a member
     if not is_member and room.is_public:
         print(f"API: Auto-adding user {sender_id} to public room {room_id}")
-        user_obj = User(id=sender_id, name=sender_name, is_current_user=True)
+        # Get user's profile image
+        sender_profile_image = get_user_profile_image(db, sender_id)
+        user_obj = User(id=sender_id, name=sender_name, profile_image_url=sender_profile_image, is_current_user=True)
         room.members.append(user_obj.model_dump())
         
         # Add join message

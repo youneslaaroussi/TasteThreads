@@ -7,6 +7,11 @@ struct ChatRoomView: View {
     @Environment(\.openURL) var openURL
     @FocusState private var isFocused: Bool
     @State private var showRoomInfo = false
+    @State private var hasAppliedDraft = false
+    
+    // Warm theme colors
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    private let warmBackground = Color(red: 0.98, green: 0.96, blue: 0.93)
     
     private var currentRoom: Room? {
         AppDataService.shared.currentRoom
@@ -16,21 +21,20 @@ struct ChatRoomView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Button(action: {
-                    dismiss()
-                }) {
+                Button(action: { dismiss() }) {
                     Image(systemName: "chevron.left")
-                        .font(.title2)
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(.black)
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(currentRoom?.name ?? "Group Chat")
-                        .font(.headline)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.black)
                     if let room = currentRoom {
                         Text("\(room.members.count) members")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 13))
+                            .foregroundColor(.black.opacity(0.5))
                     }
                 }
                 
@@ -42,31 +46,30 @@ struct ChatRoomView: View {
                         openURL(url)
                     }
                 }) {
-                    ZStack {
-                        Circle()
-                            .fill(Color(red: 0.09, green: 0.73, blue: 0.36))
-                            .frame(width: 30, height: 30)
-                        Image(systemName: "phone.fill")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
+                    Image(systemName: "phone.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 32, height: 32)
+                        .background(Color(red: 0.09, green: 0.73, blue: 0.36))
+                        .clipShape(Circle())
                 }
-                .padding(.trailing, 4)
+                .padding(.trailing, 6)
                 
                 Button(action: { showRoomInfo = true }) {
                     Image(systemName: "info.circle")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 20))
+                        .foregroundColor(.black.opacity(0.5))
                 }
             }
-            .padding()
-            .background(.ultraThinMaterial)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.white)
+            .shadow(color: .black.opacity(0.04), radius: 2, y: 2)
             
             // Messages List
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        // Show skeleton loading state
                         if viewModel.isLoading && viewModel.messages.isEmpty {
                             ForEach(0..<5, id: \.self) { index in
                                 MessageSkeletonView(isLeft: index % 2 == 0)
@@ -75,8 +78,8 @@ struct ChatRoomView: View {
                             ForEach(viewModel.messages) { message in
                                 if message.type == .system {
                                     Text(message.content)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.black.opacity(0.4))
                                         .padding(.vertical, 4)
                                 } else {
                                     MessageBubble(
@@ -106,8 +109,8 @@ struct ChatRoomView: View {
                                     
                                     if !typingUserNames.isEmpty {
                                         Text("\(typingUserNames) \(otherTypingUsers.count == 1 ? "is" : "are") typing...")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            .font(.system(size: 13))
+                                            .foregroundColor(.black.opacity(0.4))
                                     }
                                     TypingIndicatorView()
                                 }
@@ -117,8 +120,9 @@ struct ChatRoomView: View {
                             .id("typingIndicator")
                         }
                     }
-                    .padding()
+                    .padding(16)
                 }
+                .background(warmBackground)
                 .onChange(of: viewModel.messages) {
                     scrollToBottom(proxy: proxy)
                 }
@@ -140,23 +144,19 @@ struct ChatRoomView: View {
                         ForEach(replies, id: \.self) { reply in
                             Button(action: { viewModel.sendMessage(content: reply) }) {
                                 Text(reply)
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(.blue)
-                                    .padding(.horizontal, 16)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(warmAccent)
+                                    .padding(.horizontal, 14)
                                     .padding(.vertical, 8)
-                                    .background(Color.blue.opacity(0.1))
-                                    .cornerRadius(20)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 20)
-                                            .stroke(Color.blue.opacity(0.3), lineWidth: 1)
-                                    )
+                                    .background(warmAccent.opacity(0.1))
+                                    .clipShape(Capsule())
                             }
                         }
                     }
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                 }
+                .background(Color.white)
             }
             
             // Input Area
@@ -164,45 +164,50 @@ struct ChatRoomView: View {
                 AIHighlightTextField(
                     text: $viewModel.newMessageText,
                     placeholder: "Type a message... @Tess for suggestions",
-                    isFocused: $isFocused
+                    isFocused: $isFocused,
+                    accent: warmAccent
                 )
                 .onChange(of: viewModel.newMessageText) { oldValue, newValue in
-                    // Broadcast typing indicator
                     if !newValue.isEmpty && oldValue.isEmpty {
-                        // Started typing
                         AppDataService.shared.sendTypingIndicator(isTyping: true)
                     } else if newValue.isEmpty && !oldValue.isEmpty {
-                        // Stopped typing
                         AppDataService.shared.sendTypingIndicator(isTyping: false)
-                    }
-                }
-                .onAppear {
-                    if !appState.chatDraft.isEmpty {
-                        viewModel.newMessageText = appState.chatDraft
-                        appState.chatDraft = ""
-                        isFocused = true
                     }
                 }
                 
                 Button(action: { viewModel.sendMessage() }) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 32))
-                        .foregroundStyle(viewModel.newMessageText.isEmpty ? .gray : .blue)
+                        .foregroundColor(viewModel.newMessageText.isEmpty ? .black.opacity(0.2) : warmAccent)
                 }
                 .disabled(viewModel.newMessageText.isEmpty)
             }
-            .padding()
-            .background(.ultraThinMaterial)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.white)
+            .shadow(color: .black.opacity(0.04), radius: 2, y: -2)
         }
+        .background(warmBackground)
         .onTapGesture {
             isFocused = false
         }
         .task {
-            // Connect to room asynchronously in background
             viewModel.connectToRoom()
+            
+            // Apply chat draft only once
+            if !hasAppliedDraft && !appState.chatDraft.isEmpty {
+                hasAppliedDraft = true
+                let draft = appState.chatDraft
+                appState.chatDraft = ""
+                
+                // Small delay to ensure view is fully loaded
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                await MainActor.run {
+                    viewModel.newMessageText = draft
+                    isFocused = true
+                }
+            }
         }
-        // Note: We don't disconnect on disappear - connection persists for better UX
-        // Disconnection happens when explicitly leaving the room or switching rooms
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .alert("Error", isPresented: Binding(
@@ -214,7 +219,14 @@ struct ChatRoomView: View {
             Text(viewModel.errorMessage ?? "")
         }
         .sheet(isPresented: $showRoomInfo) {
-            RoomInfoSheet(room: currentRoom)
+            RoomInfoSheet(room: currentRoom, onRoomDeleted: {
+                // Dismiss the sheet first
+                showRoomInfo = false
+                // Then dismiss the chat room view to go back to room list
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    dismiss()
+                }
+            })
                 .presentationDetents([.medium])
         }
     }
@@ -236,9 +248,8 @@ struct MessageSkeletonView: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if isLeft {
-                // Avatar skeleton
                 Circle()
-                    .fill(Color.gray.opacity(0.2))
+                    .fill(Color.black.opacity(0.08))
                     .frame(width: 32, height: 32)
             } else {
                 Spacer()
@@ -246,39 +257,31 @@ struct MessageSkeletonView: View {
             
             VStack(alignment: isLeft ? .leading : .trailing, spacing: 4) {
                 if isLeft {
-                    // Name skeleton
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(Color.black.opacity(0.08))
                         .frame(width: 60, height: 10)
                         .padding(.leading, 4)
                 }
                 
-                // Message bubble skeleton
                 VStack(alignment: .leading, spacing: 6) {
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(Color.black.opacity(0.08))
                         .frame(width: isLeft ? 180 : 150, height: 12)
                     
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(Color.black.opacity(0.08))
                         .frame(width: isLeft ? 140 : 120, height: 12)
                     
                     if isLeft {
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.gray.opacity(0.2))
+                            .fill(Color.black.opacity(0.08))
                             .frame(width: 100, height: 12)
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(20)
-                
-                // Time skeleton
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.gray.opacity(0.15))
-                    .frame(width: 40, height: 8)
-                    .padding(isLeft ? .leading : .trailing, 4)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
             }
             
             if isLeft {
@@ -300,29 +303,24 @@ struct MessageBubble: View {
     let user: User?
     var relatedItem: ItineraryItem? = nil
     var onBusinessSelected: ((YelpBusiness) -> Void)? = nil
+    var onReservationAction: ((ReservationAction, ReservationTimeSlot?) -> Void)? = nil
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var dataService: AppDataService
     @State private var showDetails = false
+    @State private var showReservationSheet = false
+    @State private var selectedReservationAction: ReservationAction?
+    
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
     
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if !isCurrentUser {
-                // Avatar
-                Circle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 32, height: 32)
-                    .overlay(Text(user?.name.prefix(1) ?? "?").font(.caption))
+                AvatarView(user: user, size: 32)
             } else {
                 Spacer()
             }
             
             VStack(alignment: isCurrentUser ? .trailing : .leading, spacing: 4) {
-                if !isCurrentUser, let name = user?.name {
-                    Text(name)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 4)
-                }
-                
                 VStack(alignment: .leading, spacing: 8) {
                     HighlightedMessageText(text: message.content, isCurrentUser: isCurrentUser)
                     
@@ -340,19 +338,19 @@ struct MessageBubble: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(isCurrentUser ? Color.blue : Color(uiColor: .systemGray5))
+                .background(isCurrentUser ? warmAccent : Color.white)
                 .foregroundStyle(isCurrentUser ? .white : .primary)
-                .cornerRadius(20)
                 .clipShape(
                     .rect(
-                        topLeadingRadius: 20,
-                        bottomLeadingRadius: isCurrentUser ? 20 : 4,
-                        bottomTrailingRadius: isCurrentUser ? 4 : 20,
-                        topTrailingRadius: 20
+                        topLeadingRadius: 18,
+                        bottomLeadingRadius: isCurrentUser ? 18 : 4,
+                        bottomTrailingRadius: isCurrentUser ? 4 : 18,
+                        topTrailingRadius: 18
                     )
                 )
+                .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
                 .contextMenu {
                     Button {
                         UIPasteboard.general.string = message.content
@@ -379,15 +377,73 @@ struct MessageBubble: View {
                     )
                 }
                 
-                Text(message.timestamp, style: .time)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(isCurrentUser ? .trailing : .leading, 4)
+                // Reservation Actions
+                if let actions = message.actions {
+                    ForEach(actions) { action in
+                        switch action.type {
+                        case .reservationPrompt:
+                            ReservationCard(
+                                action: action,
+                                onSelectTime: { slot in
+                                    selectedReservationAction = action
+                                    showReservationSheet = true
+                                },
+                                onMoreOptions: {
+                                    selectedReservationAction = action
+                                    showReservationSheet = true
+                                }
+                            )
+                            .padding(.top, 8)
+                            
+                        case .reservationConfirmed:
+                            ReservationConfirmationCard(action: action)
+                                .padding(.top, 8)
+                        }
+                    }
+                }
+                
+                // Timestamp and username
+                HStack(spacing: 4) {
+                    if !isCurrentUser, let name = user?.name {
+                        Text(name)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.black.opacity(0.4))
+                        
+                        Text("·")
+                            .font(.system(size: 11))
+                            .foregroundColor(.black.opacity(0.3))
+                    }
+                    
+                    Text(message.timestamp, style: .time)
+                        .font(.system(size: 11))
+                        .foregroundColor(.black.opacity(0.4))
+                }
+                .padding(isCurrentUser ? .trailing : .leading, 4)
             }
             
             if !isCurrentUser {
                 Spacer()
             }
+        }
+        .sheet(isPresented: $showReservationSheet) {
+            if let action = selectedReservationAction {
+                ReservationSheet(
+                    action: action,
+                    userProfile: dataService.currentUser,
+                    onConfirm: { details in
+                        handleReservationConfirm(details: details)
+                    }
+                )
+            }
+        }
+    }
+    
+    private func handleReservationConfirm(details: ReservationBookingDetails) {
+        showReservationSheet = false
+        
+        if let action = selectedReservationAction {
+            let slot = ReservationTimeSlot(date: details.date, time: details.time)
+            onReservationAction?(action, slot)
         }
     }
 }
@@ -413,11 +469,11 @@ struct BusinessCarousel: View {
 
 struct BusinessCardView: View {
     let business: YelpBusiness
-    @Environment(\.colorScheme) var colorScheme
+    
+    private let warmBackground = Color(red: 0.98, green: 0.96, blue: 0.93)
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Image
             if let imageUrlString = business.contextual_info?.photos?.first?.original_url ?? business.image_url,
                let url = URL(string: imageUrlString) {
                 AsyncImage(url: url) { phase in
@@ -428,53 +484,47 @@ struct BusinessCardView: View {
                             .aspectRatio(contentMode: .fill)
                     case .failure:
                         ZStack {
-                            Rectangle()
-                                .fill(Color(uiColor: .secondarySystemFill))
+                            Rectangle().fill(warmBackground)
                             Image(systemName: "photo")
-                                .foregroundStyle(.secondary)
+                                .foregroundColor(.black.opacity(0.2))
                         }
                     case .empty:
                         ZStack {
-                            Rectangle()
-                                .fill(Color(uiColor: .secondarySystemFill))
+                            Rectangle().fill(warmBackground)
                             ProgressView()
-                                .tint(.secondary)
+                                .tint(.black.opacity(0.3))
                         }
                     @unknown default:
-                        Rectangle()
-                            .fill(Color(uiColor: .secondarySystemFill))
+                        Rectangle().fill(warmBackground)
                     }
                 }
                 .frame(width: 200, height: 120)
                 .clipped()
             } else {
                 ZStack {
-                    Rectangle()
-                        .fill(Color(uiColor: .secondarySystemFill))
+                    Rectangle().fill(warmBackground)
                     Image(systemName: "photo")
-                        .foregroundStyle(.secondary)
+                        .foregroundColor(.black.opacity(0.2))
                 }
                 .frame(width: 200, height: 120)
             }
             
-            // Content
             VStack(alignment: .leading, spacing: 4) {
                 Text(business.name)
-                    .font(.subheadline)
-                    .fontWeight(.bold)
+                    .font(.system(size: 14, weight: .semibold))
                     .lineLimit(1)
-                    .foregroundStyle(.primary)
+                    .foregroundColor(.black)
                 
                 HStack(spacing: 4) {
                     Image(systemName: "star.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.yellow)
+                        .font(.system(size: 11))
+                        .foregroundColor(.orange)
                     Text(String(format: "%.1f", business.rating))
-                        .font(.caption2)
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.black)
                     Text("(\(business.review_count))")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundColor(.black.opacity(0.5))
                 }
                 
                 HStack {
@@ -482,19 +532,15 @@ struct BusinessCardView: View {
                     Spacer()
                     Text(business.price ?? "")
                 }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+                .foregroundColor(.black.opacity(0.5))
             }
             .padding(10)
-            .background(Color(uiColor: .systemBackground).opacity(colorScheme == .dark ? 0.9 : 1.0))
+            .background(Color.white)
         }
         .frame(width: 200)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(uiColor: .secondarySystemBackground))
-        )
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.5 : 0.1), radius: 4, x: 0, y: 2)
+        .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
     }
 }
 
@@ -502,83 +548,84 @@ struct MapMessageBubble: View {
     let location: Location
     let action: () -> Void
     
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 0) {
-                // Placeholder Map Image
                 Rectangle()
-                    .fill(Color.blue.opacity(0.1))
+                    .fill(warmAccent.opacity(0.1))
                     .frame(height: 100)
                     .overlay(
                         Image(systemName: "map.fill")
-                            .font(.largeTitle)
-                            .foregroundStyle(.blue)
+                            .font(.system(size: 32))
+                            .foregroundColor(warmAccent.opacity(0.5))
                     )
                 
                 HStack {
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(location.name)
-                            .font(.caption)
-                            .fontWeight(.bold)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.black)
                         Text(location.address)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 12))
+                            .foregroundColor(.black.opacity(0.5))
                             .lineLimit(1)
                     }
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.black.opacity(0.3))
                 }
-                .padding(8)
-                .background(Color.white.opacity(0.5))
+                .padding(10)
+                .background(Color.white)
             }
         }
         .frame(width: 200)
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
     }
 }
 
 struct MiniItineraryCard: View {
     let item: ItineraryItem
     
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    
     var body: some View {
         HStack(spacing: 10) {
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white.opacity(0.5))
+                .fill(warmAccent.opacity(0.1))
                 .frame(width: 40, height: 40)
                 .overlay(
-                    Image(systemName: "fork.knife") // Placeholder
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "fork.knife")
+                        .foregroundColor(warmAccent)
                 )
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.location.name)
-                    .font(.caption)
-                    .fontWeight(.bold)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.black)
                 
                 HStack(spacing: 4) {
                     Image(systemName: "star.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.yellow)
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
                     Text(String(format: "%.1f", item.location.rating))
-                        .font(.caption2)
+                        .font(.system(size: 12))
+                        .foregroundColor(.black.opacity(0.6))
                 }
             }
             
             Spacer()
             
             Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.black.opacity(0.3))
         }
-        .padding(8)
-        .background(Color.white.opacity(0.2))
-        .cornerRadius(10)
+        .padding(10)
+        .background(Color.white.opacity(0.8))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -587,8 +634,8 @@ struct AIHighlightTextField: View {
     @Binding var text: String
     let placeholder: String
     var isFocused: FocusState<Bool>.Binding
+    var accent: Color = Color(red: 0.76, green: 0.42, blue: 0.32)
     
-    /// Triggers for AI assistant - @tess, @ai, or @yelp
     private static let aiTriggers = ["@tess", "@ai", "@yelp"]
     
     private var containsAITrigger: Bool {
@@ -598,57 +645,39 @@ struct AIHighlightTextField: View {
     
     var body: some View {
         HStack(spacing: 8) {
-            // Yelp/Tess indicator when AI trigger is typed
             if containsAITrigger {
                 HStack(spacing: 4) {
-                    // Yelp logo - using a stylized "Y" with fork icon
-                    ZStack {
-                        Circle()
-                            .fill(Color(red: 0.95, green: 0.2, blue: 0.2))
-                            .frame(width: 20, height: 20)
-                        
-                        Text("Y")
-                            .font(.system(size: 12, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                    }
-                    Text("Yelp")
-                        .font(.system(size: 11, weight: .bold))
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Tess")
+                        .font(.system(size: 12, weight: .semibold))
                 }
-                .foregroundStyle(Color(red: 0.95, green: 0.2, blue: 0.2))
+                .foregroundColor(accent)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(
-                    Color(red: 0.95, green: 0.2, blue: 0.2).opacity(0.1)
-                )
+                .background(accent.opacity(0.1))
                 .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(Color(red: 0.95, green: 0.2, blue: 0.2).opacity(0.3), lineWidth: 1)
-                )
                 .transition(.scale.combined(with: .opacity))
             }
             
             TextField(placeholder, text: $text)
+                .font(.system(size: 16))
                 .focused(isFocused)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(
             ZStack {
-                Color(uiColor: .systemGray6)
+                Color(red: 0.98, green: 0.96, blue: 0.93)
                 
-                // Subtle red glow when AI trigger is present (Yelp branding)
                 if containsAITrigger {
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(
-                            Color(red: 0.95, green: 0.2, blue: 0.2).opacity(0.4),
-                            lineWidth: 2
-                        )
+                        .stroke(accent.opacity(0.4), lineWidth: 1.5)
                 }
             }
         )
-        .cornerRadius(20)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: containsAITrigger)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .animation(.easeInOut(duration: 0.2), value: containsAITrigger)
     }
 }
 
@@ -658,7 +687,6 @@ struct HighlightedMessageText: View {
     let isCurrentUser: Bool
     
     var body: some View {
-        // Use SwiftUI's built-in Markdown parsing so links and basic formatting render correctly.
         Text(.init(text))
     }
 }
@@ -666,108 +694,184 @@ struct HighlightedMessageText: View {
 // MARK: - Room Info Sheet
 struct RoomInfoSheet: View {
     let room: Room?
+    let onRoomDeleted: (() -> Void)?
     @Environment(\.dismiss) var dismiss
+    @ObservedObject private var dataService = AppDataService.shared
     @State private var copied = false
+    @State private var showDeleteConfirmation = false
+    @State private var isDeleting = false
+    
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    private let warmBackground = Color(red: 0.98, green: 0.96, blue: 0.93)
+    
+    private var isOwner: Bool {
+        guard let room = room else { return false }
+        return dataService.currentUser.id == room.ownerId
+    }
+    
+    private var isMember: Bool {
+        guard let room = room else { return false }
+        return room.members.contains { $0.id == dataService.currentUser.id }
+    }
+    
+    init(room: Room?, onRoomDeleted: (() -> Void)? = nil) {
+        self.room = room
+        self.onRoomDeleted = onRoomDeleted
+    }
     
     var body: some View {
         NavigationView {
             if let room = room {
-                List {
-                    Section("Room Details") {
-                        HStack {
-                            Text("Name")
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text(room.name)
-                                .fontWeight(.medium)
-                        }
-                        
-                        HStack {
-                            Text("Type")
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            HStack(spacing: 4) {
-                                Image(systemName: room.isPublic ? "globe" : "lock.fill")
-                                    .font(.caption)
-                                Text(room.isPublic ? "Public" : "Private")
-                            }
-                            .foregroundStyle(room.isPublic ? .blue : .orange)
-                        }
-                        
-                        HStack {
-                            Text("Members")
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text("\(room.members.count)")
-                                .fontWeight(.medium)
-                        }
-                    }
+                ZStack {
+                    warmBackground.ignoresSafeArea()
                     
-                    Section("Invite Code") {
-                        VStack(alignment: .center, spacing: 12) {
-                            Text("Share this code to invite friends")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            
-                            Text(room.joinCode)
-                                .font(.system(size: 32, weight: .bold, design: .monospaced))
-                                .tracking(4)
-                                .foregroundStyle(Color(red: 0.4, green: 0.3, blue: 0.9))
-                            
-                            Button(action: {
-                                UIPasteboard.general.string = room.joinCode
-                                copied = true
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                    copied = false
-                                }
-                            }) {
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            // Room Details Card
+                            VStack(spacing: 0) {
                                 HStack {
-                                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                                    Text(copied ? "Copied!" : "Copy Code")
+                                    Text("Name")
+                                        .foregroundColor(.black.opacity(0.5))
+                                    Spacer()
+                                    Text(room.name)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(.black)
                                 }
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
-                                .background(copied ? Color.green : Color(red: 0.4, green: 0.3, blue: 0.9))
-                                .clipShape(Capsule())
+                                .padding(16)
+                                
+                                Divider().padding(.leading, 16)
+                                
+                                HStack {
+                                    Text("Type")
+                                        .foregroundColor(.black.opacity(0.5))
+                                    Spacer()
+                                    HStack(spacing: 4) {
+                                        Image(systemName: room.isPublic ? "globe" : "lock.fill")
+                                            .font(.system(size: 12))
+                                        Text(room.isPublic ? "Public" : "Private")
+                                    }
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(warmAccent)
+                                }
+                                .padding(16)
+                                
+                                Divider().padding(.leading, 16)
+                                
+                                HStack {
+                                    Text("Members")
+                                        .foregroundColor(.black.opacity(0.5))
+                                    Spacer()
+                                    Text("\(room.members.count)")
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(.black)
+                                }
+                                .padding(16)
                             }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                    }
-                    
-                    Section("Members") {
-                        ForEach(room.members, id: \.id) { member in
-                            HStack {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.blue.opacity(0.1))
-                                        .frame(width: 36, height: 36)
+                            .font(.system(size: 15))
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            
+                            // Invite Code Card
+                            VStack(spacing: 14) {
+                                Text("Share this code to invite friends")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.black.opacity(0.5))
+                                
+                                Text(room.joinCode)
+                                    .font(.system(size: 32, weight: .bold, design: .monospaced))
+                                    .tracking(4)
+                                    .foregroundColor(.black)
+                                
+                                Button(action: {
+                                    UIPasteboard.general.string = room.joinCode
+                                    copied = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                        copied = false
+                                    }
+                                }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                                            .font(.system(size: 14, weight: .medium))
+                                        Text(copied ? "Copied!" : "Copy Code")
+                                            .font(.system(size: 15, weight: .semibold))
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 24)
+                                    .padding(.vertical, 12)
+                                    .background(copied ? Color(red: 0.2, green: 0.7, blue: 0.4) : warmAccent)
+                                    .clipShape(Capsule())
+                                }
+                            }
+                            .padding(20)
+                            .frame(maxWidth: .infinity)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            
+                            // Members Card
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text("MEMBERS")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.black.opacity(0.4))
+                                    .padding(.horizontal, 16)
+                                    .padding(.top, 16)
+                                    .padding(.bottom, 12)
+                                
+                                ForEach(room.members, id: \.id) { member in
+                                    HStack(spacing: 12) {
+                                        AvatarView(user: member, size: 40)
+                                        
+                                        Text(member.name)
+                                            .font(.system(size: 15, weight: .medium))
+                                            .foregroundColor(.black)
+                                        
+                                        Spacer()
+                                        
+                                        if member.id == room.ownerId {
+                                            Text("Owner")
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background(warmAccent)
+                                                .clipShape(Capsule())
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
                                     
-                                    Text(String(member.name.prefix(1)))
-                                        .font(.subheadline)
-                                        .fontWeight(.medium)
-                                        .foregroundStyle(.blue)
-                                }
-                                
-                                Text(member.name)
-                                    .font(.subheadline)
-                                
-                                Spacer()
-                                
-                                if member.id == room.ownerId {
-                                    Text("Owner")
-                                        .font(.caption)
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 2)
-                                        .background(Color(red: 0.4, green: 0.3, blue: 0.9))
-                                        .clipShape(Capsule())
+                                    if member.id != room.members.last?.id {
+                                        Divider().padding(.leading, 68)
+                                    }
                                 }
                             }
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            
+                            // Delete/Leave Room Button
+                            Button(action: {
+                                showDeleteConfirmation = true
+                            }) {
+                                HStack(spacing: 8) {
+                                    if isDeleting {
+                                        ProgressView()
+                                            .tint(.red)
+                                    } else {
+                                        Image(systemName: isOwner ? "trash.fill" : "rectangle.portrait.and.arrow.right")
+                                            .font(.system(size: 16, weight: .medium))
+                                        Text(isOwner ? "Delete Room" : "Leave Room")
+                                            .font(.system(size: 16, weight: .semibold))
+                                    }
+                                }
+                                .foregroundColor(.red)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                            .disabled(isDeleting)
+                            .padding(.top, 8)
                         }
+                        .padding(16)
                     }
                 }
                 .navigationTitle("Room Info")
@@ -775,11 +879,45 @@ struct RoomInfoSheet: View {
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { dismiss() }
+                            .foregroundColor(warmAccent)
                     }
+                }
+                .confirmationDialog(
+                    isOwner ? "Delete \"\(room.name)\"?" : "Leave \"\(room.name)\"?",
+                    isPresented: $showDeleteConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button(isOwner ? "Delete Room" : "Leave Room", role: .destructive) {
+                        isDeleting = true
+                        if isOwner {
+                            dataService.deleteRoom(roomId: room.id) { success in
+                                isDeleting = false
+                                if success {
+                                    dismiss()
+                                    // Navigate out of the room after deletion
+                                    onRoomDeleted?()
+                                }
+                            }
+                        } else {
+                            dataService.leaveRoom(roomId: room.id) { success in
+                                isDeleting = false
+                                if success {
+                                    dismiss()
+                                    // Navigate out after leaving (no longer a member)
+                                    onRoomDeleted?()
+                                }
+                            }
+                        }
+                    }
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text(isOwner 
+                         ? "This will permanently delete the room and all messages for everyone."
+                         : "You will no longer see messages from this room.")
                 }
             } else {
                 Text("Room not found")
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(.black.opacity(0.5))
             }
         }
     }

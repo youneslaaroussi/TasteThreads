@@ -22,6 +22,7 @@ struct TasteThreadsApp: App {
             ContentView()
                 .environmentObject(dataService)
                 .environmentObject(appState)
+                .preferredColorScheme(.light)
         }
     }
 }

@@ -350,12 +350,14 @@ struct MapAnnotationItem: Identifiable {
 struct SearchResultPin: View {
     let business: YelpBusiness
     
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
                 Image(systemName: "mappin.circle.fill")
                     .font(.system(size: 40))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(warmAccent)
                     .shadow(radius: 5)
             }
         }
@@ -536,6 +538,10 @@ struct ItineraryPin: View {
     let item: ItineraryItem
     let isSelected: Bool
     
+    // Warm theme colors
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    private let warmAccentLight = Color(red: 0.85, green: 0.55, blue: 0.4)
+    
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
@@ -543,7 +549,7 @@ struct ItineraryPin: View {
                     .font(.system(size: 20))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(item.isAISuggestion ? Color.purple : Color.pink)
+                    .background(item.isAISuggestion ? warmAccentLight : warmAccent)
                     .clipShape(Circle())
                     .scaleEffect(isSelected ? 1.2 : 1.0)
                     .shadow(radius: 5)
@@ -551,14 +557,14 @@ struct ItineraryPin: View {
                 if item.isAISuggestion {
                     Image(systemName: "sparkles")
                         .font(.caption2)
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(.white)
                         .offset(x: 14, y: -14)
                 }
                 
                 if item.location.aiRemark != nil {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
                         .font(.caption2)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(warmAccent)
                         .offset(x: -14, y: -14)
                         .background(Circle().fill(Color.white).frame(width: 12, height: 12).offset(x: -14, y: -14))
                 }
@@ -566,7 +572,7 @@ struct ItineraryPin: View {
             
             Image(systemName: "triangle.fill")
                 .font(.caption)
-                .foregroundStyle(item.isAISuggestion ? Color.purple : Color.pink)
+                .foregroundStyle(item.isAISuggestion ? warmAccentLight : warmAccent)
                 .offset(y: -4)
                 .rotationEffect(.degrees(180))
         }
@@ -600,26 +606,28 @@ struct FancyMapMarker: View {
     
     @State private var isAnimating = false
     
+    // Warm theme accent
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    
     private var gradientColors: [Color] {
         switch type {
         case .search:
-            return [Color(red: 0.2, green: 0.6, blue: 1.0), Color(red: 0.1, green: 0.4, blue: 0.9)]
+            // Darker terracotta for search
+            return [Color(red: 0.65, green: 0.35, blue: 0.25), Color(red: 0.55, green: 0.28, blue: 0.2)]
         case .itinerary:
-            return [Color(red: 1.0, green: 0.4, blue: 0.5), Color(red: 0.9, green: 0.2, blue: 0.4)]
+            // Main terracotta
+            return [Color(red: 0.76, green: 0.42, blue: 0.32), Color(red: 0.66, green: 0.32, blue: 0.22)]
         case .aiSuggestion:
-            return [Color(red: 0.6, green: 0.4, blue: 1.0), Color(red: 0.4, green: 0.2, blue: 0.8)]
+            // Lighter warm tone for AI
+            return [Color(red: 0.85, green: 0.55, blue: 0.4), Color(red: 0.76, green: 0.42, blue: 0.32)]
         case .saved:
-            return [Color(red: 0.95, green: 0.3, blue: 0.3), Color(red: 0.85, green: 0.2, blue: 0.2)]
+            // Deep warm red for saved
+            return [Color(red: 0.8, green: 0.35, blue: 0.28), Color(red: 0.7, green: 0.25, blue: 0.2)]
         }
     }
     
     private var glowColor: Color {
-        switch type {
-        case .search: return .blue
-        case .itinerary: return .pink
-        case .aiSuggestion: return .purple
-        case .saved: return Color(red: 0.95, green: 0.3, blue: 0.3)
-        }
+        warmAccent
     }
     
     var body: some View {

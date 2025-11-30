@@ -1,5 +1,5 @@
 """
-User Collections API - Saved Locations & AI Discoveries
+User Collections API - Saved Locations & AI Discoveries & User Profile
 """
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, field_serializer
@@ -7,8 +7,9 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
-from database import get_db, SavedLocationDB, AIDiscoveryDB
+from database import get_db, SavedLocationDB, AIDiscoveryDB, UserDB
 from auth import get_current_user
+from models.user_profile_models import UserProfileResponse, UpdateProfileRequest
 
 router = APIRouter()
 
@@ -280,4 +281,101 @@ async def clear_ai_discoveries(user: dict = Depends(get_current_user), db: Sessi
     print(f"API: Cleared {deleted} AI discoveries for user {user['uid']}")
     
     return {"success": True, "deleted_count": deleted}
+
+
+# --- User Profile Endpoints ---
+
+
+@router.get("/profile", response_model=UserProfileResponse)
+async def get_user_profile(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Get the current user's profile"""
+    db_user = db.query(UserDB).filter(UserDB.id == user["uid"]).first()
+    
+    if not db_user:
+        # Create user if doesn't exist
+        db_user = UserDB(
+            id=user["uid"],
+            name=user.get("name", user.get("email", "User")),
+            email=user.get("email")
+        )
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+    
+    return UserProfileResponse(
+        id=db_user.id,
+        name=db_user.name,
+        bio=db_user.bio,
+        profile_image_url=db_user.profile_image_url,
+        preferences=db_user.preferences,  # Already a list of strings
+        first_name=db_user.first_name,
+        last_name=db_user.last_name,
+        phone_number=db_user.phone_number,
+        email=db_user.email,
+        created_at=db_user.created_at
+    )
+
+
+@router.put("/profile", response_model=UserProfileResponse)
+async def update_user_profile(
+    request: UpdateProfileRequest, 
+    user: dict = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    """Update the current user's profile (name, profile picture, and contact info)"""
+    db_user = db.query(UserDB).filter(UserDB.id == user["uid"]).first()
+    
+    if not db_user:
+        # Create user if doesn't exist
+        db_user = UserDB(
+            id=user["uid"],
+            name=user.get("name", user.get("email", "User")),
+            email=user.get("email")
+        )
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+    
+    # Update fields if provided
+    if request.name is not None:
+        db_user.name = request.name
+    
+    if request.bio is not None:
+        db_user.bio = request.bio
+    
+    if request.profile_image_url is not None:
+        db_user.profile_image_url = request.profile_image_url
+    
+    if request.preferences is not None:
+        db_user.preferences = request.preferences  # Already a list of strings
+    
+    if request.first_name is not None:
+        db_user.first_name = request.first_name
+    
+    if request.last_name is not None:
+        db_user.last_name = request.last_name
+    
+    if request.phone_number is not None:
+        db_user.phone_number = request.phone_number
+    
+    if request.email is not None:
+        db_user.email = request.email
+    
+    db.commit()
+    db.refresh(db_user)
+    
+    print(f"API: Updated profile for user {user['uid']}")
+    
+    return UserProfileResponse(
+        id=db_user.id,
+        name=db_user.name,
+        bio=db_user.bio,
+        profile_image_url=db_user.profile_image_url,
+        preferences=db_user.preferences,  # Already a list of strings
+        first_name=db_user.first_name,
+        last_name=db_user.last_name,
+        phone_number=db_user.phone_number,
+        email=db_user.email,
+        created_at=db_user.created_at
+    )
 

@@ -20,10 +20,14 @@ class AuthenticationService: ObservableObject {
     private func setupAuthListener() {
         handle = Auth.auth().addStateDidChangeListener { [weak self] auth, user in
             DispatchQueue.main.async {
+                let wasAuthenticated = self?.isAuthenticated ?? false
                 self?.user = user
                 self?.isAuthenticated = user != nil
                 
                 if let user = user {
+                    // Update onboarding manager with current user
+                    OnboardingManager.shared.setCurrentUser(user.uid)
+                    
                     // Refresh token to ensure we have a valid one for API calls
                     user.getIDToken { token, error in
                         if let error = error {
@@ -32,6 +36,10 @@ class AuthenticationService: ObservableObject {
                             print("Got ID token for user: \(user.uid)")
                         }
                     }
+                } else {
+                    // User signed out - reset onboarding so it shows again next time
+                    OnboardingManager.shared.setCurrentUser(nil)
+                    OnboardingManager.shared.resetOnboarding()
                 }
             }
         }

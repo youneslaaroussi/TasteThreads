@@ -2,6 +2,7 @@ import SwiftUI
 import Charts
 import Combine
 import FirebaseAuth
+import PhotosUI
 
 struct TasteGraphView: View {
     @EnvironmentObject var dataService: AppDataService
@@ -10,88 +11,135 @@ struct TasteGraphView: View {
     @State private var tastePersona: TastePersona?
     @State private var isLoadingPersona = false
     @State private var showSignOutConfirmation = false
+    @State private var showImagePicker = false
+    @State private var selectedImage: UIImage?
+    @State private var isUploadingImage = false
+    
+    // Warm theme colors
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    private let warmBackground = Color(red: 0.98, green: 0.96, blue: 0.93)
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
-                VStack(spacing: 24) {
-                    // User Profile Card (at top)
-                    UserProfileCard(user: dataService.currentUser)
-                        .padding(.horizontal)
-                        .padding(.top)
-                    
-                    // AI Taste Persona
-                    AITastePersonaCard(
-                        persona: tastePersona,
-                        isLoading: isLoadingPersona,
-                        onRefresh: generatePersona
-                    )
-                    .padding(.horizontal)
-                    
-                    // Header Stats
-                    StatsOverviewSection(
-                        aiSuggestionsCount: dataService.aiSuggestedLocations.count,
-                        savedPlacesCount: dataService.savedLocations.count,
-                        roomsCount: dataService.rooms.count,
-                        messagesCount: totalMessagesCount
-                    )
-                    .padding(.horizontal)
-                    .padding(.top)
-                    
-                    // Cuisine Distribution
-                    if !cuisineData.isEmpty {
-                        CuisineDistributionSection(cuisineData: cuisineData)
-                            .padding(.horizontal)
-                    }
-                    
-                    // Price Range Distribution
-                    if !priceRangeData.isEmpty {
-                        PriceRangeSection(priceData: priceRangeData)
-                            .padding(.horizontal)
-                    }
-                    
-                    // Average Ratings
-                    RatingsSection(
-                        savedAverage: savedPlacesAverageRating,
-                        aiAverage: aiSuggestionsAverageRating
-                    )
-                    .padding(.horizontal)
-                    
-                    // AI Discoveries
-                    if !dataService.aiSuggestedLocations.isEmpty {
-                        AIDiscoveriesSection(locations: dataService.aiSuggestedLocations, appState: appState)
-                            .padding(.horizontal)
-                    }
-                    
-                    // Saved Places
-                    if !dataService.savedLocations.isEmpty {
-                        SavedPlacesGridSection(locations: dataService.savedLocations, appState: appState)
-                            .padding(.horizontal)
-                    }
-                    
-                    // Sign Out Button
-                    Button(action: {
-                        showSignOutConfirmation = true
-                    }) {
-                        HStack {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                                .font(.system(size: 20, weight: .medium))
-                            Text("Sign Out")
-                                .font(.system(size: 18, weight: .semibold))
+                VStack(spacing: 20) {
+                        // User Profile Card
+                        UserProfileCard(
+                            user: dataService.currentUser,
+                            selectedImage: $selectedImage,
+                            isUploadingImage: $isUploadingImage,
+                            showImagePicker: $showImagePicker,
+                            onSaveImage: saveProfileImage
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        
+                        // AI Taste Persona
+                        AITastePersonaCard(
+                            persona: tastePersona,
+                            isLoading: isLoadingPersona,
+                            onRefresh: generatePersona
+                        )
+                        .padding(.horizontal, 16)
+                        
+                        // Header Stats
+                        StatsOverviewSection(
+                            aiSuggestionsCount: dataService.aiSuggestedLocations.count,
+                            savedPlacesCount: dataService.savedLocations.count,
+                            roomsCount: dataService.rooms.count,
+                            messagesCount: totalMessagesCount
+                        )
+                        .padding(.horizontal, 16)
+                        
+                        // Cuisine Distribution
+                        if !cuisineData.isEmpty {
+                            CuisineDistributionSection(cuisineData: cuisineData)
+                                .padding(.horizontal, 16)
                         }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color(red: 0.95, green: 0.3, blue: 0.3))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        
+                        // Price Range Distribution
+                        if !priceRangeData.isEmpty {
+                            PriceRangeSection(priceData: priceRangeData)
+                                .padding(.horizontal, 16)
+                        }
+                        
+                        // Average Ratings
+                        RatingsSection(
+                            savedAverage: savedPlacesAverageRating,
+                            aiAverage: aiSuggestionsAverageRating
+                        )
+                        .padding(.horizontal, 16)
+                        
+                        // AI Discoveries
+                        if !dataService.aiSuggestedLocations.isEmpty {
+                            AIDiscoveriesSection(locations: dataService.aiSuggestedLocations, appState: appState)
+                                .padding(.horizontal, 16)
+                        }
+                        
+                        // Saved Places
+                        if !dataService.savedLocations.isEmpty {
+                            SavedPlacesGridSection(locations: dataService.savedLocations, appState: appState)
+                                .padding(.horizontal, 16)
+                        }
+                        
+                        // Sign Out Button
+                        Button(action: {
+                            showSignOutConfirmation = true
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "rectangle.portrait.and.arrow.right")
+                                    .font(.system(size: 16, weight: .medium))
+                                Text("Sign Out")
+                                    .font(.system(size: 16, weight: .semibold))
+                            }
+                            .foregroundColor(.black.opacity(0.6))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        
+                        // Legal Links
+                        VStack(spacing: 16) {
+                            HStack(spacing: 24) {
+                                Link("Privacy Policy", destination: URL(string: "https://raw.githubusercontent.com/youneslaaroussi/TasteThreads/main/PRIVACY.md")!)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(warmAccent)
+                                
+                                Text("•")
+                                    .foregroundColor(.black.opacity(0.3))
+                                
+                                Link("Terms of Service", destination: URL(string: "https://raw.githubusercontent.com/youneslaaroussi/TasteThreads/main/TERMS.md")!)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(warmAccent)
+                            }
+                            
+                            // Powered by Yelp
+                            HStack(spacing: 6) {
+                                Text("Powered by")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.black.opacity(0.4))
+                                
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(Color(red: 0.76, green: 0.42, blue: 0.32))
+                                
+                                Text("Yelp")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.76, green: 0.42, blue: 0.32))
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 24)
+                        .padding(.bottom, 40)
                     }
-                    .padding(.horizontal)
-                    .padding(.top, 8)
+                    .padding(.bottom, 20)
                 }
-                .padding(.bottom, 100)
-            }
+            .background(warmBackground)
             .navigationTitle("Profile")
-            .background(Color(uiColor: .systemGroupedBackground))
             .refreshable {
                 await refreshProfile()
             }
@@ -111,15 +159,35 @@ struct TasteGraphView: View {
         }
     }
     
+    private func saveProfileImage() {
+        guard let image = selectedImage else { return }
+        
+        let maxSize: CGFloat = 400
+        let scale = min(maxSize / image.size.width, maxSize / image.size.height, 1.0)
+        let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        guard let imageData = resizedImage?.jpegData(compressionQuality: 0.7) else { return }
+        
+        isUploadingImage = true
+        dataService.updateUserProfile(profileImageData: imageData) { success in
+            isUploadingImage = false
+            if success {
+                selectedImage = nil
+            }
+        }
+    }
+    
     private func refreshProfile() async {
-        // Refresh data from server
         await withCheckedContinuation { continuation in
             dataService.fetchSavedLocations()
             dataService.fetchAIDiscoveries()
             
-            // Small delay to allow data to load
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                // Regenerate persona with fresh data
                 self.generatePersona()
                 continuation.resume()
             }
@@ -145,7 +213,6 @@ struct TasteGraphView: View {
             withAnimation {
                 tastePersona = persona
             }
-            print("Generated persona: \(persona.title) - \(persona.bio)")
         })
         .store(in: &cancellables)
     }
@@ -161,7 +228,6 @@ struct TasteGraphView: View {
     private var cuisineData: [CuisineCount] {
         var counts: [String: Int] = [:]
         
-        // Count from saved locations
         for location in dataService.savedLocations {
             if let categories = location.yelpDetails?.categories {
                 for category in categories {
@@ -170,7 +236,6 @@ struct TasteGraphView: View {
             }
         }
         
-        // Count from AI suggestions
         for location in dataService.aiSuggestedLocations {
             if let categories = location.yelpDetails?.categories {
                 for category in categories {
@@ -188,7 +253,6 @@ struct TasteGraphView: View {
     private var priceRangeData: [PriceRangeCount] {
         var counts: [String: Int] = [:]
         
-        // All locations
         let allLocations = dataService.savedLocations + dataService.aiSuggestedLocations
         for location in allLocations {
             if let price = location.yelpDetails?.price, !price.isEmpty {
@@ -221,6 +285,15 @@ struct TasteGraphView: View {
 // MARK: - User Profile Card
 struct UserProfileCard: View {
     let user: User
+    @Binding var selectedImage: UIImage?
+    @Binding var isUploadingImage: Bool
+    @Binding var showImagePicker: Bool
+    let onSaveImage: () -> Void
+    
+    @State private var showEditSheet = false
+    @EnvironmentObject var dataService: AppDataService
+    
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
     
     private var firebaseUser: FirebaseAuth.User? {
         Auth.auth().currentUser
@@ -240,87 +313,373 @@ struct UserProfileCard: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Header with gradient
-            ZStack(alignment: .bottomLeading) {
-                LinearGradient(
-                    colors: [Color(red: 0.4, green: 0.3, blue: 0.9), Color(red: 0.2, green: 0.6, blue: 0.8)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .frame(height: 80)
+        VStack(spacing: 20) {
+            AvatarView(user: user, size: 100)
+            
+            VStack(spacing: 6) {
+                Text(user.name)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundColor(.black)
                 
-                // Avatar
-                ZStack {
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: 72, height: 72)
-                        .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
-                    
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(red: 0.4, green: 0.3, blue: 0.9), Color(red: 0.2, green: 0.6, blue: 0.8)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 64, height: 64)
-                    
-                    Text(String(user.name.prefix(1)).uppercased())
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                if let bio = user.bio, !bio.isEmpty {
+                    Text(bio)
+                        .font(.system(size: 15))
+                        .foregroundColor(.black.opacity(0.5))
+                        .multilineTextAlignment(.center)
                 }
-                .offset(x: 20, y: 36)
             }
             
-            // Content
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(user.name)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    
-                    HStack(spacing: 6) {
-                        Image(systemName: "envelope.fill")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.secondary)
-                        Text(userEmail)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.top, 50)
-                
-                Divider()
-                
-                // Member info
-                HStack(spacing: 24) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Member Since")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(memberSince)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("User ID")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(String(user.id.prefix(8)) + "...")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(.secondary)
+            // User Preferences
+            if let preferences = user.preferences, !preferences.isEmpty {
+                FlowLayout(spacing: 8) {
+                    ForEach(preferences, id: \.self) { preference in
+                        Text(preference)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(warmAccent)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(warmAccent.opacity(0.1))
+                            .clipShape(Capsule())
                     }
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            
+            HStack(spacing: 6) {
+                Image(systemName: "envelope.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(.black.opacity(0.4))
+                Text(userEmail)
+                    .font(.system(size: 14))
+                    .foregroundColor(.black.opacity(0.5))
+            }
+            
+            Button(action: { showEditSheet = true }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 14, weight: .medium))
+                    Text("Edit Profile")
+                        .font(.system(size: 15, weight: .semibold))
+                }
+                .foregroundColor(warmAccent)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(warmAccent.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            
+            Divider()
+            
+            HStack(spacing: 24) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Member Since")
+                        .font(.system(size: 12))
+                        .foregroundColor(.black.opacity(0.4))
+                    Text(memberSince)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.black)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("User ID")
+                        .font(.system(size: 12))
+                        .foregroundColor(.black.opacity(0.4))
+                    Text(String(user.id.prefix(8)) + "...")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.black.opacity(0.5))
+                }
+            }
         }
-        .background(Color(uiColor: .systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
+        .padding(20)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
+        .sheet(isPresented: $showEditSheet) {
+            ProfileEditSheet(
+                user: user,
+                selectedImage: $selectedImage,
+                isUploadingImage: $isUploadingImage,
+                showImagePicker: $showImagePicker,
+                onSaveImage: onSaveImage
+            )
+        }
+    }
+}
+
+// MARK: - Profile Edit Sheet
+struct ProfileEditSheet: View {
+    let user: User
+    @Binding var selectedImage: UIImage?
+    @Binding var isUploadingImage: Bool
+    @Binding var showImagePicker: Bool
+    let onSaveImage: () -> Void
+    
+    @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var dataService: AppDataService
+    
+    @State private var editedName: String = ""
+    @State private var editedBio: String = ""
+    @State private var editedPreferences: Set<String> = []
+    @State private var isSaving = false
+    
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    private let warmBackground = Color(red: 0.98, green: 0.96, blue: 0.93)
+    
+    private var originalPreferences: Set<String> {
+        Set(user.preferences ?? [])
+    }
+    
+    private var hasChanges: Bool {
+        editedName != user.name || 
+        editedBio != (user.bio ?? "") || 
+        editedPreferences != originalPreferences ||
+        selectedImage != nil
+    }
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                warmBackground.ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 28) {
+                        Button(action: { showImagePicker = true }) {
+                            ZStack(alignment: .bottomTrailing) {
+                                if let selectedImage = selectedImage {
+                                    Image(uiImage: selectedImage)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 120, height: 120)
+                                        .clipShape(Circle())
+                                } else {
+                                    AvatarView(user: user, size: 120)
+                                }
+                                
+                                Circle()
+                                    .fill(warmAccent)
+                                    .frame(width: 36, height: 36)
+                                    .overlay(
+                                        Image(systemName: "camera.fill")
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundColor(.white)
+                                    )
+                                    .offset(x: 4, y: 4)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 20)
+                        
+                        VStack(spacing: 20) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Name")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.black.opacity(0.5))
+                                
+                                TextField("Your name", text: $editedName)
+                                    .font(.system(size: 16))
+                                    .padding(16)
+                                    .background(Color.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Bio")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.black.opacity(0.5))
+                                
+                                TextField("Tell us about yourself...", text: $editedBio, axis: .vertical)
+                                    .font(.system(size: 16))
+                                    .lineLimit(3...6)
+                                    .padding(16)
+                                    .background(Color.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        // Preferences Section
+                        VStack(alignment: .leading, spacing: 20) {
+                            Text("Preferences")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.black.opacity(0.5))
+                                .padding(.horizontal, 20)
+                            
+                            EditPreferenceSection(
+                                title: "Cuisines",
+                                options: OnboardingManager.availableCuisines,
+                                selected: $editedPreferences,
+                                accent: warmAccent
+                            )
+                            
+                            EditPreferenceSection(
+                                title: "Dietary",
+                                options: OnboardingManager.availableDietary,
+                                selected: $editedPreferences,
+                                accent: warmAccent
+                            )
+                            
+                            EditPreferenceSection(
+                                title: "Vibe",
+                                options: OnboardingManager.availableVibes,
+                                selected: $editedPreferences,
+                                accent: warmAccent
+                            )
+                            
+                            EditPreferenceSection(
+                                title: "Budget",
+                                options: OnboardingManager.availablePriceRanges,
+                                selected: $editedPreferences,
+                                accent: warmAccent
+                            )
+                        }
+                        .padding(.bottom, 40)
+                    }
+                }
+            }
+            .navigationTitle("Edit Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        selectedImage = nil
+                        dismiss()
+                    }
+                    .foregroundColor(warmAccent)
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(action: saveChanges) {
+                        if isSaving || isUploadingImage {
+                            ProgressView()
+                                .tint(warmAccent)
+                        } else {
+                            Text("Save")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                    }
+                    .foregroundColor(hasChanges ? warmAccent : .black.opacity(0.3))
+                    .disabled(!hasChanges || isSaving || isUploadingImage)
+                }
+            }
+        }
+        .onAppear {
+            editedName = user.name
+            editedBio = user.bio ?? ""
+            editedPreferences = Set(user.preferences ?? [])
+        }
+        .sheet(isPresented: $showImagePicker) {
+            ImagePicker(selectedImage: $selectedImage)
+        }
+    }
+    
+    private func saveChanges() {
+        isSaving = true
+        
+        if selectedImage != nil {
+            onSaveImage()
+        }
+        
+        dataService.updateUserProfile(
+            name: editedName,
+            bio: editedBio,
+            preferences: Array(editedPreferences)
+        ) { success in
+            isSaving = false
+            if success {
+                selectedImage = nil
+                dismiss()
+            }
+        }
+    }
+}
+
+// MARK: - Edit Preference Section
+struct EditPreferenceSection: View {
+    let title: String
+    let options: [String]
+    @Binding var selected: Set<String>
+    let accent: Color
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.black.opacity(0.4))
+                .textCase(.uppercase)
+                .tracking(0.5)
+                .padding(.horizontal, 20)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(options, id: \.self) { option in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                if selected.contains(option) {
+                                    selected.remove(option)
+                                } else {
+                                    selected.insert(option)
+                                }
+                            }
+                        } label: {
+                            Text(option)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(selected.contains(option) ? .white : .black.opacity(0.7))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(selected.contains(option) ? accent : Color.white)
+                                .clipShape(Capsule())
+                                .shadow(color: .black.opacity(0.04), radius: 3, y: 2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+}
+
+// MARK: - Image Picker
+struct ImagePicker: UIViewControllerRepresentable {
+    @Binding var selectedImage: UIImage?
+    @Environment(\.dismiss) var dismiss
+    
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.delegate = context.coordinator
+        picker.allowsEditing = true
+        picker.sourceType = .photoLibrary
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: ImagePicker
+        
+        init(_ parent: ImagePicker) {
+            self.parent = parent
+        }
+        
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let editedImage = info[.editedImage] as? UIImage {
+                parent.selectedImage = editedImage
+            } else if let originalImage = info[.originalImage] as? UIImage {
+                parent.selectedImage = originalImage
+            }
+            parent.dismiss()
+        }
+        
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
     }
 }
 
@@ -330,28 +689,23 @@ struct AITastePersonaCard: View {
     let isLoading: Bool
     let onRefresh: () -> Void
     
-    // Refined color palette - deep indigo to teal
-    private let accentGradient = LinearGradient(
-        colors: [Color(red: 0.4, green: 0.3, blue: 0.9), Color(red: 0.2, green: 0.6, blue: 0.8)],
-        startPoint: .leading,
-        endPoint: .trailing
-    )
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(accentGradient)
-                Text("AI Taste Persona")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(warmAccent)
+                Text("Your Taste Profile")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.black.opacity(0.5))
                 Spacer()
                 
                 Button(action: onRefresh) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(Color(red: 0.4, green: 0.3, blue: 0.9))
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(warmAccent)
                 }
                 .disabled(isLoading)
             }
@@ -361,56 +715,44 @@ struct AITastePersonaCard: View {
                     Spacer()
                     VStack(spacing: 12) {
                         ProgressView()
-                            .tint(Color(red: 0.4, green: 0.3, blue: 0.9))
+                            .tint(warmAccent)
                         Text("Analyzing your taste...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 13))
+                            .foregroundColor(.black.opacity(0.4))
                     }
-                    .padding(.vertical, 20)
+                    .padding(.vertical, 24)
                     Spacer()
                 }
             } else if let persona = persona {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
                     Text(persona.title)
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundStyle(accentGradient)
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(warmAccent)
                     
                     Text(persona.bio)
-                        .font(.body)
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 15))
+                        .foregroundColor(.black.opacity(0.7))
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(4)
                 }
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: 10) {
                     Image(systemName: "fork.knife.circle")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 36))
+                        .foregroundColor(warmAccent.opacity(0.4))
                     Text("Start exploring to discover your taste profile!")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 14))
+                        .foregroundColor(.black.opacity(0.5))
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical)
+                .padding(.vertical, 16)
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(
-                            LinearGradient(
-                                colors: [Color(red: 0.4, green: 0.3, blue: 0.9).opacity(0.3), Color(red: 0.2, green: 0.6, blue: 0.8).opacity(0.3)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                )
-        )
-        .shadow(color: Color(red: 0.4, green: 0.3, blue: 0.9).opacity(0.1), radius: 10, x: 0, y: 5)
+        .padding(20)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
     }
 }
 
@@ -421,20 +763,17 @@ struct StatsOverviewSection: View {
     let roomsCount: Int
     let messagesCount: Int
     
-    private let aiColor = Color(red: 0.4, green: 0.3, blue: 0.9)
-    private let savedColor = Color(red: 0.95, green: 0.3, blue: 0.3)
-    private let roomsColor = Color(red: 0.2, green: 0.5, blue: 0.9)
-    private let messagesColor = Color(red: 0.2, green: 0.7, blue: 0.5)
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
     
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                StatCard(title: "AI Discoveries", value: "\(aiSuggestionsCount)", icon: "sparkles", color: aiColor)
-                StatCard(title: "Saved", value: "\(savedPlacesCount)", icon: "heart.fill", color: savedColor)
+                StatCard(title: "Discoveries", value: "\(aiSuggestionsCount)", icon: "sparkles", color: warmAccent)
+                StatCard(title: "Saved", value: "\(savedPlacesCount)", icon: "heart.fill", color: warmAccent)
             }
             HStack(spacing: 12) {
-                StatCard(title: "Rooms", value: "\(roomsCount)", icon: "bubble.left.and.bubble.right.fill", color: roomsColor)
-                StatCard(title: "Messages", value: "\(messagesCount)", icon: "message.fill", color: messagesColor)
+                StatCard(title: "Rooms", value: "\(roomsCount)", icon: "bubble.left.and.bubble.right.fill", color: warmAccent)
+                StatCard(title: "Messages", value: "\(messagesCount)", icon: "message.fill", color: warmAccent)
             }
         }
     }
@@ -447,24 +786,24 @@ struct StatCard: View {
     let color: Color
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: icon)
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundStyle(color)
-                Spacer()
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 24, weight: .medium))
+                .foregroundColor(color)
+            
             Text(value)
-                .font(.system(size: 36, weight: .bold))
+                .font(.system(size: 32, weight: .bold))
+                .foregroundColor(.black)
+            
             Text(title)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+                .foregroundColor(.black.opacity(0.5))
         }
-        .padding()
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .systemBackground))
-        .cornerRadius(16)
-        .shadow(color: .black.opacity(0.05), radius: 5)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
     }
 }
 
@@ -472,13 +811,13 @@ struct StatCard: View {
 struct CuisineDistributionSection: View {
     let cuisineData: [CuisineCount]
     
-    private let chartColor = Color(red: 0.4, green: 0.3, blue: 0.9)
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Top Cuisines")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            Text("TOP CUISINES")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.black.opacity(0.4))
             
             if #available(iOS 16.0, *) {
                 Chart(cuisineData) { item in
@@ -486,33 +825,32 @@ struct CuisineDistributionSection: View {
                         x: .value("Count", item.count),
                         y: .value("Cuisine", item.name)
                     )
-                    .foregroundStyle(chartColor.gradient)
+                    .foregroundStyle(warmAccent.gradient)
+                    .cornerRadius(4)
                 }
-                .frame(height: CGFloat(cuisineData.count * 40))
-                .padding()
-                .background(Color(uiColor: .systemBackground))
-                .cornerRadius(16)
-                .shadow(color: .black.opacity(0.05), radius: 5)
+                .frame(height: CGFloat(cuisineData.count * 36))
+                .padding(16)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
             } else {
-                // Fallback for iOS 15
-                VStack(spacing: 8) {
+                VStack(spacing: 10) {
                     ForEach(cuisineData) { item in
                         HStack {
                             Text(item.name)
-                                .font(.subheadline)
+                                .font(.system(size: 14))
+                                .foregroundColor(.black)
                             Spacer()
                             Text("\(item.count)")
-                                .font(.subheadline)
-                                .fontWeight(.bold)
-                                .foregroundStyle(chartColor)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(warmAccent)
                         }
-                        .padding(.horizontal)
                     }
                 }
-                .padding(.vertical)
-                .background(Color(uiColor: .systemBackground))
-                .cornerRadius(16)
-                .shadow(color: .black.opacity(0.05), radius: 5)
+                .padding(16)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
             }
         }
     }
@@ -522,33 +860,36 @@ struct CuisineDistributionSection: View {
 struct PriceRangeSection: View {
     let priceData: [PriceRangeCount]
     
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Price Range Preference")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            Text("PRICE PREFERENCE")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.black.opacity(0.4))
             
-            HStack(alignment: .bottom, spacing: 12) {
+            HStack(alignment: .bottom, spacing: 16) {
                 ForEach(priceData) { item in
                     VStack(spacing: 8) {
                         Spacer()
-                        Rectangle()
-                            .fill(Color.green.gradient)
-                            .frame(width: 40, height: CGFloat(item.count * 10))
-                            .cornerRadius(8)
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(warmAccent)
+                            .frame(width: 36, height: CGFloat(item.count * 12 + 20))
                         Text("\(item.count)")
-                            .font(.system(size: 24, weight: .bold))
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.black)
                         Text(item.range)
-                            .font(.title2)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.black.opacity(0.5))
                     }
                     .frame(maxWidth: .infinity)
                 }
             }
-            .frame(height: 150)
-            .padding()
-            .background(Color(uiColor: .systemBackground))
-            .cornerRadius(16)
-            .shadow(color: .black.opacity(0.05), radius: 5)
+            .frame(height: 140)
+            .padding(16)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
         }
     }
 }
@@ -558,15 +899,17 @@ struct RatingsSection: View {
     let savedAverage: Double
     let aiAverage: Double
     
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Average Ratings")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            Text("AVERAGE RATINGS")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.black.opacity(0.4))
             
             HStack(spacing: 12) {
-                RatingCard(title: "Saved Places", rating: savedAverage, color: Color(red: 0.95, green: 0.3, blue: 0.3))
-                RatingCard(title: "AI Picks", rating: aiAverage, color: Color(red: 0.4, green: 0.3, blue: 0.9))
+                RatingCard(title: "Saved Places", rating: savedAverage, color: warmAccent)
+                RatingCard(title: "AI Picks", rating: aiAverage, color: warmAccent)
             }
         }
     }
@@ -580,21 +923,22 @@ struct RatingCard: View {
     var body: some View {
         VStack(spacing: 8) {
             Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+                .foregroundColor(.black.opacity(0.5))
             HStack(spacing: 6) {
                 Image(systemName: "star.fill")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(color)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.orange)
                 Text(String(format: "%.1f", rating))
-                    .font(.system(size: 32, weight: .bold))
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.black)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding()
-        .background(Color(uiColor: .systemBackground))
-        .cornerRadius(16)
-        .shadow(color: .black.opacity(0.05), radius: 5)
+        .padding(16)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
     }
 }
 
@@ -603,17 +947,18 @@ struct AIDiscoveriesSection: View {
     let locations: [Location]
     let appState: AppState
     
-    private let aiAccent = Color(red: 0.4, green: 0.3, blue: 0.9)
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    private let warmBackground = Color(red: 0.98, green: 0.96, blue: 0.93)
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(aiAccent)
-                Text("AI Discoveries")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(warmAccent)
+                Text("DISCOVERIES")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.black.opacity(0.4))
             }
             
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
@@ -622,84 +967,56 @@ struct AIDiscoveriesSection: View {
                         appState.navigateToMap(location: location)
                     }) {
                         VStack(alignment: .leading, spacing: 0) {
-                            ZStack(alignment: .topTrailing) {
                             if let imageUrl = location.imageURL {
                                 AsyncImage(url: imageUrl) { image in
                                     image
                                         .resizable()
                                         .aspectRatio(contentMode: .fill)
                                 } placeholder: {
-                                        Rectangle()
-                                            .fill(Color(uiColor: .systemGray5))
-                                            .overlay(
-                                                ProgressView()
-                                                    .tint(.secondary)
-                                            )
+                                    Rectangle()
+                                        .fill(warmBackground)
+                                        .overlay(ProgressView().tint(warmAccent.opacity(0.5)))
                                 }
-                                .frame(height: 120)
+                                .frame(height: 110)
                                 .clipped()
                             } else {
                                 Rectangle()
-                                        .fill(
-                                            LinearGradient(
-                                                colors: [Color(uiColor: .systemGray5), Color(uiColor: .systemGray6)],
-                                                startPoint: .topLeading,
-                                                endPoint: .bottomTrailing
-                                            )
-                                        )
-                                    .frame(height: 120)
-                                        .overlay(
-                                            Image(systemName: "fork.knife")
-                                                .font(.title2)
-                                                .foregroundStyle(.secondary)
-                                        )
-                                }
-                                
-                                // AI badge
-                                HStack(spacing: 2) {
-                                    Image(systemName: "sparkles")
-                                        .font(.system(size: 8, weight: .bold))
-                                    Text("AI")
-                                        .font(.system(size: 9, weight: .heavy))
-                                }
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(aiAccent)
-                                .clipShape(Capsule())
-                                .padding(8)
+                                    .fill(warmBackground)
+                                    .frame(height: 110)
+                                    .overlay(
+                                        Image(systemName: "fork.knife")
+                                            .font(.title2)
+                                            .foregroundColor(warmAccent.opacity(0.4))
+                                    )
                             }
                             
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(location.name)
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
+                                    .font(.system(size: 14, weight: .semibold))
                                     .lineLimit(1)
-                                    .foregroundStyle(.primary)
+                                    .foregroundColor(.black)
                                 
                                 HStack(spacing: 4) {
                                     Image(systemName: "star.fill")
-                                        .font(.caption2)
-                                        .foregroundStyle(.orange)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.orange)
                                     Text(String(format: "%.1f", location.rating))
-                                        .font(.caption2)
-                                        .fontWeight(.medium)
-                                        .foregroundStyle(.primary)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.black)
                                 }
                                 
                                 if let aiRemark = location.aiRemark, !aiRemark.isEmpty {
                                     Text(aiRemark)
-                                        .font(.caption2)
-                                        .foregroundStyle(aiAccent)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.black.opacity(0.5))
                                         .lineLimit(2)
-                                        .padding(.top, 2)
                                 }
                             }
                             .padding(10)
                         }
-                        .background(Color(uiColor: .systemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 2)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
                     }
                 }
             }
@@ -712,17 +1029,18 @@ struct SavedPlacesGridSection: View {
     let locations: [Location]
     let appState: AppState
     
-    private let savedAccent = Color(red: 0.95, green: 0.3, blue: 0.3)
+    private let warmAccent = Color(red: 0.76, green: 0.42, blue: 0.32)
+    private let warmBackground = Color(red: 0.98, green: 0.96, blue: 0.93)
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
                 Image(systemName: "heart.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(savedAccent)
-                Text("Saved Places")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(warmAccent)
+                Text("SAVED PLACES")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.black.opacity(0.4))
             }
             
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
@@ -732,78 +1050,66 @@ struct SavedPlacesGridSection: View {
                     }) {
                         VStack(alignment: .leading, spacing: 0) {
                             ZStack(alignment: .topTrailing) {
-                            if let imageUrl = location.imageURL {
-                                AsyncImage(url: imageUrl) { image in
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                } placeholder: {
+                                if let imageUrl = location.imageURL {
+                                    AsyncImage(url: imageUrl) { image in
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    } placeholder: {
                                         Rectangle()
-                                            .fill(Color(uiColor: .systemGray5))
-                                            .overlay(
-                                                ProgressView()
-                                                    .tint(.secondary)
-                                            )
-                                }
-                                .frame(height: 120)
-                                .clipped()
-                            } else {
-                                Rectangle()
-                                        .fill(
-                                            LinearGradient(
-                                                colors: [Color(uiColor: .systemGray5), Color(uiColor: .systemGray6)],
-                                                startPoint: .topLeading,
-                                                endPoint: .bottomTrailing
-                                            )
-                                        )
-                                    .frame(height: 120)
+                                            .fill(warmBackground)
+                                            .overlay(ProgressView().tint(warmAccent.opacity(0.5)))
+                                    }
+                                    .frame(height: 110)
+                                    .clipped()
+                                } else {
+                                    Rectangle()
+                                        .fill(warmBackground)
+                                        .frame(height: 110)
                                         .overlay(
                                             Image(systemName: "fork.knife")
                                                 .font(.title2)
-                                                .foregroundStyle(.secondary)
+                                                .foregroundColor(warmAccent.opacity(0.4))
                                         )
                                 }
                                 
-                                // Saved heart badge
                                 Image(systemName: "heart.fill")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .padding(6)
-                                    .background(savedAccent)
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .padding(5)
+                                    .background(warmAccent)
                                     .clipShape(Circle())
                                     .padding(8)
                             }
                             
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(location.name)
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
+                                    .font(.system(size: 14, weight: .semibold))
                                     .lineLimit(1)
-                                    .foregroundStyle(.primary)
+                                    .foregroundColor(.black)
                                 
                                 HStack(spacing: 4) {
                                     Image(systemName: "star.fill")
-                                        .font(.caption2)
-                                        .foregroundStyle(.orange)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.orange)
                                     Text(String(format: "%.1f", location.rating))
-                                        .font(.caption2)
-                                        .fontWeight(.medium)
-                                        .foregroundStyle(.primary)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.black)
                                     
                                     if let price = location.yelpDetails?.price {
                                         Text("·")
-                                            .foregroundStyle(.secondary)
+                                            .foregroundColor(.black.opacity(0.3))
                                         Text(price)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
+                                            .font(.system(size: 12))
+                                            .foregroundColor(.black.opacity(0.5))
                                     }
                                 }
                             }
                             .padding(10)
                         }
-                        .background(Color(uiColor: .systemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 2)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
                     }
                 }
             }

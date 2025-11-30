@@ -41,10 +41,10 @@ class AppDataService: DataService, ObservableObject {
     
     init() {
         // AI User
-        self.aiUser = User(id: "00000000-0000-0000-0000-000000000001", name: "Tess (AI)", avatarURL: nil, isCurrentUser: false)
+        self.aiUser = User(id: User.aiUserId, name: "Tess (AI)", avatarURL: nil, profileImageURL: nil, isCurrentUser: false)
         
         // Initial dummy user until auth loads
-        self.currentUser = User(id: "loading", name: "Loading...", avatarURL: nil, isCurrentUser: true)
+        self.currentUser = User(id: "loading", name: "Loading...", avatarURL: nil, profileImageURL: nil, isCurrentUser: true)
         
         setupAuthListener()
         locationService.startMonitoring()
@@ -55,16 +55,18 @@ class AppDataService: DataService, ObservableObject {
             .sink { [weak self] firebaseUser in
                 guard let self = self else { return }
                 if let firebaseUser = firebaseUser {
-                    // Update current user from Firebase
+                    // Update current user from Firebase initially
                     self.currentUser = User(
                         id: firebaseUser.uid,
                         name: firebaseUser.displayName ?? firebaseUser.email ?? "User",
                         avatarURL: nil,
+                        profileImageURL: nil,
                         isCurrentUser: true
                     )
                     self.fetchRooms()
                     self.fetchSavedLocations()
                     self.fetchAIDiscoveries()
+                    self.fetchUserProfile()  // Fetch profile picture
                 } else {
                     self.rooms = []
                     self.currentRoomId = nil
@@ -72,6 +74,92 @@ class AppDataService: DataService, ObservableObject {
                     self.aiSuggestedLocations = []
                 }
             }
+            .store(in: &cancellables)
+    }
+    
+    // MARK: - User Profile
+    
+    func fetchUserProfile() {
+        print("AppDataService: Fetching user profile...")
+        APIService.shared.getUserProfile()
+            .receive(on: DispatchQueue.main)
+            .sink(receiveCompletion: { completion in
+                if case .failure(let error) = completion {
+                    print("AppDataService: Error fetching user profile: \(error)")
+                }
+            }, receiveValue: { [weak self] response in
+                guard let self = self else { return }
+                print("AppDataService: Fetched user profile with image: \(response.profile_image_url ?? "none")")
+                
+                // Update current user with profile image, bio, preferences, and contact info
+                let profileImageURL = response.profile_image_url.flatMap { URL(string: $0) }
+                self.currentUser = User(
+                    id: self.currentUser.id,
+                    name: response.name,
+                    avatarURL: self.currentUser.avatarURL,
+                    profileImageURL: profileImageURL,
+                    bio: response.bio,
+                    preferences: response.preferences,
+                    isCurrentUser: true,
+                    firstName: response.first_name,
+                    lastName: response.last_name,
+                    phoneNumber: response.phone_number,
+                    email: response.email
+                )
+            })
+            .store(in: &cancellables)
+    }
+    
+    func updateUserProfile(name: String? = nil, bio: String? = nil, preferences: [String]? = nil,
+                           profileImageData: Data? = nil,
+                           firstName: String? = nil, lastName: String? = nil,
+                           phoneNumber: String? = nil, email: String? = nil,
+                           completion: ((Bool) -> Void)? = nil) {
+        print("AppDataService: Updating user profile...")
+        
+        // Convert image data to base64 data URL if provided
+        var profileImageURL: String? = nil
+        if let imageData = profileImageData {
+            profileImageURL = "data:image/jpeg;base64,\(imageData.base64EncodedString())"
+        }
+        
+        APIService.shared.updateUserProfile(
+            name: name,
+            bio: bio,
+            preferences: preferences,
+            profileImageURL: profileImageURL,
+            firstName: firstName,
+            lastName: lastName,
+            phoneNumber: phoneNumber,
+            email: email
+        )
+            .receive(on: DispatchQueue.main)
+            .sink(receiveCompletion: { completionStatus in
+                if case .failure(let error) = completionStatus {
+                    print("AppDataService: Error updating user profile: \(error)")
+                    completion?(false)
+                }
+            }, receiveValue: { [weak self] response in
+                guard let self = self else { return }
+                print("AppDataService: Updated user profile")
+                
+                // Update current user with all fields
+                let newProfileImageURL = response.profile_image_url.flatMap { URL(string: $0) }
+                self.currentUser = User(
+                    id: self.currentUser.id,
+                    name: response.name,
+                    avatarURL: self.currentUser.avatarURL,
+                    profileImageURL: newProfileImageURL,
+                    bio: response.bio,
+                    preferences: response.preferences,
+                    isCurrentUser: true,
+                    firstName: response.first_name,
+                    lastName: response.last_name,
+                    phoneNumber: response.phone_number,
+                    email: response.email
+                )
+                completion?(true)
+            })
             .store(in: &cancellables)
     }
     
