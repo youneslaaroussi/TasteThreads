@@ -11,6 +11,9 @@ struct TasteGraphView: View {
     @State private var tastePersona: TastePersona?
     @State private var isLoadingPersona = false
     @State private var showSignOutConfirmation = false
+    @State private var showDeleteAccountConfirmation = false
+    @State private var isDeletingAccount = false
+    @State private var deleteErrorMessage: String?
     @State private var showImagePicker = false
     @State private var selectedImage: UIImage?
     @State private var isUploadingImage = false
@@ -102,6 +105,25 @@ struct TasteGraphView: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
                         
+                        // Delete Account Button
+                        Button(action: {
+                            showDeleteAccountConfirmation = true
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 16, weight: .medium))
+                                Text("Delete Account")
+                                    .font(.system(size: 16, weight: .semibold))
+                            }
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
+                        }
+                        .padding(.horizontal, 16)
+                        
                         // Legal Links
                         VStack(spacing: 16) {
                             HStack(spacing: 24) {
@@ -155,6 +177,26 @@ struct TasteGraphView: View {
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("Are you sure you want to sign out?")
+            }
+            .alert("Delete Account", isPresented: $showDeleteAccountConfirmation) {
+                Button("Delete Account", role: .destructive) {
+                    performAccountDeletion()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This will permanently delete your TasteThreads profile, saved places, and AI history. This action cannot be undone.")
+            }
+            .alert("Unable to Delete Account", isPresented: Binding<Bool>(
+                get: { deleteErrorMessage != nil },
+                set: { newValue in
+                    if !newValue {
+                        deleteErrorMessage = nil
+                    }
+                }
+            )) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(deleteErrorMessage ?? "Something went wrong.")
             }
         }
     }
@@ -266,6 +308,24 @@ struct TasteGraphView: View {
                 return PriceRangeCount(range: price, count: count)
             }
             return nil
+        }
+    }
+    
+    private func performAccountDeletion() {
+        guard !isDeletingAccount else { return }
+        isDeletingAccount = true
+        
+        dataService.deleteAccount { success in
+            isDeletingAccount = false
+            if success {
+                do {
+                    try AuthenticationService.shared.signOut()
+                } catch {
+                    print("Error signing out after account deletion: \(error)")
+                }
+            } else {
+                deleteErrorMessage = "We couldn't delete your account. Please try again."
+            }
         }
     }
     

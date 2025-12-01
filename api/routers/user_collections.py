@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
-from database import get_db, SavedLocationDB, AIDiscoveryDB, UserDB
+from database import get_db, SavedLocationDB, AIDiscoveryDB, UserDB, RoomDB, ChatSessionDB
 from auth import get_current_user
 from models.user_profile_models import UserProfileResponse, UpdateProfileRequest
 
@@ -378,4 +378,110 @@ async def update_user_profile(
         email=db_user.email,
         created_at=db_user.created_at
     )
+
+
+@router.delete("/account")
+async def delete_account(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Permanently delete the current user's account and associated server-side data.
+
+    This will:
+    - Delete the user's profile row (`UserDB`)
+    - Delete all saved locations for the user
+    - Delete all AI discoveries for the user
+    - Remove the user from all rooms' member lists
+    - Reassign room ownership where possible; delete empty rooms the user owned
+    - Delete chat sessions for any rooms that are deleted
+
+    NOTE: Messages the user previously sent in rooms are preserved so that
+    conversations remain readable for other participants.
+    """
+    user_id = user["uid"]
+
+    # Delete saved locations and AI discoveries
+    deleted_saved = (
+        db.query(SavedLocationDB)
+        .filter(SavedLocationDB.user_id == user_id)
+        .delete(synchronize_session=False)
+    )
+    deleted_discoveries = (
+        db.query(AIDiscoveryDB)
+        .filter(AIDiscoveryDB.user_id == user_id)
+        .delete(synchronize_session=False)
+    )
+
+    # Clean up room memberships and ownership
+    rooms = db.query(RoomDB).all()
+    rooms_updated = 0
+    rooms_deleted = 0
+
+    # Constant AI user id used elsewhere in the app
+    AI_USER_ID = "00000000-0000-0000-0000-000000000001"
+
+    for room in rooms:
+        changed = False
+
+        # Remove user from members list
+        members = room.members or []
+        new_members = [m for m in members if m.get("id") != user_id]
+        if len(new_members) != len(members):
+            room.members = new_members
+            changed = True
+
+        # If the user owned this room, transfer ownership or delete the room
+        if room.owner_id == user_id:
+            # Find a new owner among remaining (non-AI) members
+            new_owner_id = None
+            for m in new_members:
+                mid = m.get("id")
+                if mid and mid != AI_USER_ID:
+                    new_owner_id = mid
+                    break
+
+            if new_owner_id:
+                room.owner_id = new_owner_id
+                changed = True
+            else:
+                # No suitable new owner -> delete room and its chat session
+                chat_session = (
+                    db.query(ChatSessionDB)
+                    .filter(ChatSessionDB.room_id == room.id)
+                    .first()
+                )
+                if chat_session:
+                    db.delete(chat_session)
+
+                db.delete(room)
+                rooms_deleted += 1
+                continue
+
+        if changed:
+            rooms_updated += 1
+
+    # Delete user profile row
+    db_user = db.query(UserDB).filter(UserDB.id == user_id).first()
+    if db_user:
+        db.delete(db_user)
+
+    db.commit()
+
+    # Best-effort cleanup of the Firestore user document (if it exists)
+    try:
+        from auth import db as firestore_db  # type: ignore
+
+        firestore_db.collection("users").document(user_id).delete()
+    except Exception as e:
+        # Do not fail the request if Firestore cleanup fails
+        print(f"Warning: failed to delete Firestore user document for {user_id}: {e}")
+
+    return {
+        "success": True,
+        "deleted_saved": deleted_saved,
+        "deleted_discoveries": deleted_discoveries,
+        "rooms_updated": rooms_updated,
+        "rooms_deleted": rooms_deleted,
+    }
 

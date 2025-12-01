@@ -600,6 +600,32 @@ class AppDataService: DataService, ObservableObject {
         let yelpId = location.yelpId ?? "custom_\(location.name)_\(location.latitude)"
         return savedLocations.contains(where: { $0.yelpId == yelpId || $0 == location })
     }
+    
+    // MARK: - Account Deletion
+    
+    /// Delete the current user's account and all associated server-side data.
+    /// On success, local cached data is cleared. The caller is responsible for signing out.
+    func deleteAccount(completion: @escaping (Bool) -> Void) {
+        print("AppDataService: Deleting account for user \(currentUser.id)")
+        
+        APIService.shared.deleteAccount()
+            .receive(on: DispatchQueue.main)
+            .sink(receiveCompletion: { completionStatus in
+                if case .failure(let error) = completionStatus {
+                    print("AppDataService: Error deleting account: \(error)")
+                    completion(false)
+                }
+            }, receiveValue: { [weak self] _ in
+                print("AppDataService: Account deleted successfully")
+                // Clear local state; auth listener will also reset when the caller signs out.
+                self?.rooms = []
+                self?.currentRoomId = nil
+                self?.savedLocations = []
+                self?.aiSuggestedLocations = []
+                completion(true)
+            })
+            .store(in: &cancellables)
+    }
 }
 
 // MARK: - Background Location Service

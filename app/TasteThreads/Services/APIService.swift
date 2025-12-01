@@ -354,6 +354,14 @@ class APIService: ObservableObject {
         }
     }
     
+    /// Permanently delete the current user's account and all associated server-side data.
+    func deleteAccount() -> AnyPublisher<Void, Error> {
+        return futureVoidRequest {
+            guard let url = URL(string: "\(self.userBaseURL)/account") else { throw URLError(.badURL) }
+            _ = try await self.authenticatedRequest(url: url, method: "DELETE", body: nil as String?)
+        }
+    }
+    
     // MARK: - Reservations API
     
     /// Create a temporary hold on a reservation slot (expires in ~5 minutes)
