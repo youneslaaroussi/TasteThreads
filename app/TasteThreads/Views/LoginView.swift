@@ -169,14 +169,14 @@ struct LoginView: View {
                         // Legal Links
                         VStack(spacing: 16) {
                             HStack(spacing: 24) {
-                                Link("Privacy Policy", destination: URL(string: "https://raw.githubusercontent.com/youneslaaroussi/TasteThreads/main/PRIVACY.md")!)
+                                Link("Privacy Policy", destination: URL(string: "https://github.com/youneslaaroussi/TasteThreads/blob/main/PRIVACY.md")!)
                                     .font(.system(size: 14))
                                     .foregroundColor(warmAccent)
                                 
                                 Text("•")
                                     .foregroundColor(.black.opacity(0.3))
                                 
-                                Link("Terms of Service", destination: URL(string: "https://raw.githubusercontent.com/youneslaaroussi/TasteThreads/main/TERMS.md")!)
+                                Link("Terms of Service", destination: URL(string: "https://github.com/youneslaaroussi/TasteThreads/blob/main/TERMS.md")!)
                                     .font(.system(size: 14))
                                     .foregroundColor(warmAccent)
                             }
