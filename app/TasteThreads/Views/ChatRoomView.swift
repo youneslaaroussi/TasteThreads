@@ -4,7 +4,6 @@ struct ChatRoomView: View {
     @StateObject private var viewModel = ChatViewModel()
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) var dismiss
-    @Environment(\.openURL) var openURL
     @FocusState private var isFocused: Bool
     @State private var showRoomInfo = false
     @State private var hasAppliedDraft = false
@@ -39,21 +38,6 @@ struct ChatRoomView: View {
                 }
                 
                 Spacer()
-                
-                // Invite to WhatsApp button
-                Button(action: {
-                    if let url = URL(string: "whatsapp://") {
-                        openURL(url)
-                    }
-                }) {
-                    Image(systemName: "phone.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 32, height: 32)
-                        .background(Color(red: 0.09, green: 0.73, blue: 0.36))
-                        .clipShape(Circle())
-                }
-                .padding(.trailing, 6)
                 
                 Button(action: { showRoomInfo = true }) {
                     Image(systemName: "info.circle")

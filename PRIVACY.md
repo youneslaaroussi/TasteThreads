@@ -20,7 +20,7 @@ If you have any questions about this Privacy Policy or would like to exercise yo
 
 ## 2. Information we collect
 
-We collect information in several ways: (a) you provide it directly, (b) it is collected automatically when you use the app, and (c) it is received from third parties such as Firebase, Yelp, and WhatsApp.
+We collect information in several ways: (a) you provide it directly, (b) it is collected automatically when you use the app, and (c) it is received from third parties such as Firebase and Yelp.
 
 ### 2.1 Account & authentication data
 
@@ -38,8 +38,7 @@ Through your profile and reservation settings, we may collect:
 - Bio or short description  
 - Profile image URL or uploaded avatar (which may be stored as a URL or encoded image data)  
 - Taste and preference strings (e.g. cuisines, dietary constraints, vibes, price sensitivity)  
-- Optional contact details for reservations: first name, last name, phone number, email address  
-- WhatsApp identifier (if you interact with TasteThreads via WhatsApp)
+- Optional contact details for reservations: first name, last name, phone number, email address
 
 ### 2.3 Location and context data
 
@@ -71,17 +70,7 @@ To support group planning and AI conversations, we store:
 
 Messages and room state are stored both in our primary database and in Firebase Firestore to power real-time sync.
 
-### 2.6 WhatsApp integration
-
-If you interact with TasteThreads via WhatsApp:
-
-- We receive your WhatsApp phone identifier and message content via Meta’s APIs.  
-- We create or link a TasteThreads user record to your WhatsApp identifier.  
-- Messages are bridged into a TasteThreads room so Tess and your room context can respond.
-
-We do not control WhatsApp’s independent collection and processing of your data; please review WhatsApp’s and Meta’s own privacy policies.
-
-### 2.7 Reservation data (Yelp Reservations)
+### 2.6 Reservation data (Yelp Reservations)
 
 When you use reservation features that integrate with Yelp Reservations, we may send on your behalf:
 
@@ -92,7 +81,7 @@ When you use reservation features that integrate with Yelp Reservations, we may 
 
 Reservation requests and confirmations are processed by Yelp’s APIs. We do **not** handle or store your payment card details; if a credit card is required, you will typically complete that step directly with Yelp or the restaurant.
 
-### 2.8 Usage, diagnostics, and log data
+### 2.7 Usage, diagnostics, and log data
 
 We may collect:
 
@@ -139,7 +128,6 @@ We use trusted third parties to operate the Service, including:
 
 - **Firebase (Google)** for authentication, real-time sync (Firestore), and token management  
 - **Yelp** for search, AI-powered business recommendations, business details, and reservations  
-- **Meta / WhatsApp** for users who choose to interact over WhatsApp  
 - **Cloud hosting and logging providers** for our backend infrastructure and monitoring
 
 These providers process data on our behalf under appropriate agreements and security measures.

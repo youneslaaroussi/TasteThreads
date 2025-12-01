@@ -35,8 +35,8 @@ Core features may include:
 - User authentication and profiles  
 - Group chat rooms with human and AI participants  
 - AI-powered recommendations using data from Yelp and your preferences, location context, and history  
-- Saved places and AI “discoveries” maintained in your account  
-- Optional integrations with services like WhatsApp and Yelp Reservations
+- Saved places and AI "discoveries" maintained in your account  
+- Optional integrations with services like Yelp Reservations
 
 We may add, modify, or remove features from time to time.
 
@@ -47,8 +47,7 @@ We may add, modify, or remove features from time to time.
 The Service integrates with and depends on third-party services, including but not limited to:
 
 - **Firebase (Google)** for authentication and real-time data sync  
-- **Yelp** (Yelp Fusion, Yelp AI, and Yelp Reservations APIs) for business data, recommendations, and reservations  
-- **Meta / WhatsApp** for users who interact with TasteThreads via WhatsApp
+- **Yelp** (Yelp Fusion, Yelp AI, and Yelp Reservations APIs) for business data, recommendations, and reservations
 
 You acknowledge and agree that:
 

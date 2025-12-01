@@ -228,12 +228,44 @@ struct TimeSlotButton: View {
     }
 }
 
-#Preview {
+#Preview("With Image") {
+    let sampleAction = ReservationAction(
+        type: .reservationPrompt,
+        businessId: "allora-fifth-ave-new-york",
+        businessName: "Allora Fifth Ave",
+        businessImageUrl: "https://s3-media0.fl.yelpcdn.com/bphoto/abc123/o.jpg",
+        businessAddress: "292 5th Ave, New York, NY 10001",
+        businessPhone: "+1 646-928-5198",
+        businessRating: 4.3,
+        availableTimes: [
+            ReservationTimeSlot(date: "2025-12-01", time: "18:00"),
+            ReservationTimeSlot(date: "2025-12-01", time: "18:30"),
+            ReservationTimeSlot(date: "2025-12-01", time: "19:00"),
+            ReservationTimeSlot(date: "2025-12-01", time: "19:30"),
+        ],
+        coversRange: ReservationCoversRange(minPartySize: 1, maxPartySize: 8),
+        requestedDate: "2025-12-01",
+        requestedTime: "19:00",
+        requestedCovers: 2
+    )
+    
+    return ReservationCard(
+        action: sampleAction,
+        onSelectTime: { _ in },
+        onMoreOptions: { }
+    )
+    .padding()
+    .background(Color(uiColor: .systemGroupedBackground))
+}
+
+#Preview("Without Image") {
     let sampleAction = ReservationAction(
         type: .reservationPrompt,
         businessId: "test-restaurant",
         businessName: "Victor's French Bistro",
-        businessImageUrl: nil,
+        businessAddress: "123 Main St, San Francisco, CA",
+        businessPhone: "+1 415-555-1234",
+        businessRating: 4.5,
         availableTimes: [
             ReservationTimeSlot(date: "2025-11-30", time: "18:00"),
             ReservationTimeSlot(date: "2025-11-30", time: "18:30"),

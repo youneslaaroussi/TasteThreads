@@ -60,9 +60,10 @@ def write_message_to_firestore(room_id: str, message_data: dict):
             "content": message_data["content"],
             "timestamp": message_data["timestamp"],
             "type": message_data.get("type", "text"),
-            "businesses": message_data.get("businesses")
+            "businesses": message_data.get("businesses"),
+            "actions": message_data.get("actions"),
         })
-        print(f"Firestore: Message {message_data['id']} written to room {room_id}")
+        print(f"Firestore: Message {message_data['id']} written to room {room_id} (actions: {len(message_data.get('actions') or [])})")
     except Exception as e:
         print(f"Firestore: Error writing message: {e}")
 

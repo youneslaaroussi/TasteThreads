@@ -41,8 +41,15 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "openai:gpt-4o-mini")
 YELP_API_KEY = os.getenv("YELP_API_KEY")
 AI_USER_ID = "00000000-0000-0000-0000-000000000001"
 
+# Test mode for Yelp Reservations API (disabled by default)
+# Enable with YELP_RESERVATIONS_TEST_MODE=true to use simulated reservation responses
+YELP_RESERVATIONS_TEST_MODE = os.getenv("YELP_RESERVATIONS_TEST_MODE", "false").lower() == "true"
+
 if not YELP_API_KEY:
     logger.warning("YELP_API_KEY not set. Yelp AI and Reservations tools will fail.")
+
+if YELP_RESERVATIONS_TEST_MODE:
+    logger.info("YELP_RESERVATIONS_TEST_MODE is ENABLED - using test reservation responses")
 
 AI_USER_NAME = "Tess (AI)"
 
@@ -266,12 +273,18 @@ def _get_system_instructions() -> str:
         f"   - If user says 'tomorrow', use: {tomorrow_str}\n"
         "   - Default time to 19:00 if not specified. Default covers to 2 if not specified.\n"
         "   - **IMPORTANT**: Date must be today or future. NEVER use past dates.\n"
+        "   - The response may include a `business` object with image_url, location, phone, rating, etc. Use this data!\n"
         "3. **Return a reservation_prompt action**: After getting openings, include a ReservationAction in your `actions` array:\n"
         "   ```\n"
         "   {\n"
         "     'type': 'reservation_prompt',\n"
         "     'business_id': '<id>',\n"
         "     'business_name': '<name>',\n"
+        "     'business_image_url': '<image_url from business object if available>',\n"
+        "     'business_address': '<formatted address from business.location.display_address if available>',\n"
+        "     'business_phone': '<display_phone from business object if available>',\n"
+        "     'business_rating': <rating from business object if available>,\n"
+        "     'business_url': '<url from business object if available>',\n"
         "     'available_times': [{'date': 'YYYY-MM-DD', 'time': 'HH:MM', 'credit_card_required': false}, ...],\n"
         "     'covers_range': {'min_party_size': 1, 'max_party_size': 8},\n"
         "     'requested_date': '<date user asked for>',\n"
@@ -279,7 +292,7 @@ def _get_system_instructions() -> str:
         "     'requested_covers': <party size>\n"
         "   }\n"
         "   ```\n"
-        "   The iOS app will render this as a booking card with time slots.\n\n"
+        "   The iOS app will render this as a booking card with time slots, business image, and contact info.\n\n"
         
         "4. **Write friendly text**: Your `text` should be conversational, e.g.:\n"
         "   'Great choice! I found some available times at [restaurant]. Pick a slot below or tap More Options for more dates.'\n\n"
@@ -288,6 +301,8 @@ def _get_system_instructions() -> str:
         
         "6. **Do NOT complete the booking yourself**: The iOS app handles hold creation and booking confirmation.\n"
         "   Just return the reservation_prompt action with available times.\n"
+        
+        "7. **For reservation_confirmed actions**: Include the same business details (image_url, address, phone, rating, url).\n"
     )
 
 
@@ -408,6 +423,170 @@ async def yelp_ai_search(
             return {"error": True, "error_code": "UNKNOWN_ERROR", "message": "An unexpected error occurred. Do not retry - respond to the user."}
 
 
+async def _fetch_business_for_test(business_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch real business details from Yelp for test mode.
+    Returns business data including image_url, name, location, etc.
+    """
+    if not YELP_API_KEY:
+        return None
+    
+    url = f"https://api.yelp.com/v3/businesses/{business_id}"
+    headers = {
+        "Authorization": f"Bearer {YELP_API_KEY}",
+        "Accept": "application/json",
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                logfire.info("Fetched real business for test mode", 
+                           business_id=business_id, 
+                           name=data.get("name"),
+                           has_image=bool(data.get("image_url")))
+                return data
+    except Exception as e:
+        logfire.error("Error fetching business for test mode", business_id=business_id, error=str(e))
+    
+    return None
+
+
+async def _generate_test_openings(business_id: str, date: str, time: str, covers: int) -> Dict[str, Any]:
+    """
+    Generate test reservation openings data with real business info.
+    Used when YELP_RESERVATIONS_TEST_MODE is enabled.
+    """
+    # Fetch real business details
+    business = await _fetch_business_for_test(business_id)
+    
+    # Parse the requested time to generate times around it
+    try:
+        hour, minute = map(int, time.split(":"))
+    except:
+        hour, minute = 19, 0
+    
+    # Generate available times: requested time plus 30 min before/after intervals
+    times = []
+    for offset in [-60, -30, 0, 30, 60, 90]:
+        slot_hour = hour + (minute + offset) // 60
+        slot_minute = (minute + offset) % 60
+        if 11 <= slot_hour <= 22:  # Restaurant hours
+            times.append({
+                "date": date,
+                "time": f"{slot_hour:02d}:{slot_minute:02d}",
+                "credit_card_required": False,
+            })
+    
+    result = {
+        "reservation_times": times,
+        "covers_range": {
+            "min_party_size": 1,
+            "max_party_size": 10,
+        },
+        "is_test_mode": True,
+    }
+    
+    # Add real business data if available
+    if business:
+        result["business"] = {
+            "id": business.get("id"),
+            "name": business.get("name"),
+            "image_url": business.get("image_url"),
+            "url": business.get("url"),
+            "phone": business.get("phone"),
+            "display_phone": business.get("display_phone"),
+            "rating": business.get("rating"),
+            "review_count": business.get("review_count"),
+            "price": business.get("price"),
+            "location": business.get("location"),
+            "coordinates": business.get("coordinates"),
+            "categories": business.get("categories"),
+            "photos": business.get("photos", [])[:3],
+        }
+    
+    return result
+
+
+async def _generate_test_hold(business_id: str, date: str, time: str, covers: int, unique_id: str) -> Dict[str, Any]:
+    """
+    Generate test hold data with real business info.
+    Used when YELP_RESERVATIONS_TEST_MODE is enabled.
+    """
+    import uuid
+    
+    # Fetch real business details
+    business = await _fetch_business_for_test(business_id)
+    
+    hold_id = f"TEST-{uuid.uuid4().hex[:16].upper()}"
+    expires_at = (datetime.now() + timedelta(minutes=5)).timestamp()
+    
+    result = {
+        "hold_id": hold_id,
+        "expires_at": expires_at,
+        "credit_card_hold": False,
+        "cancellation_policy": "Free cancellation up to 1 hour before your reservation.",
+        "reserve_url": f"https://www.yelp.com/reservations/{business_id}/checkout/{date}/{time.replace(':', '')}/{covers}?hold_id={hold_id}",
+        "is_editable": True,
+        "is_test_mode": True,
+    }
+    
+    # Add real business data if available
+    if business:
+        result["business"] = {
+            "id": business.get("id"),
+            "name": business.get("name"),
+            "image_url": business.get("image_url"),
+            "url": business.get("url"),
+            "phone": business.get("phone"),
+            "display_phone": business.get("display_phone"),
+            "rating": business.get("rating"),
+            "location": business.get("location"),
+            "coordinates": business.get("coordinates"),
+            "photos": business.get("photos", [])[:3],
+        }
+    
+    return result
+
+
+async def _generate_test_reservation(business_id: str, hold_id: str, date: str, time: str, covers: int, first_name: str, notes: str = "") -> Dict[str, Any]:
+    """
+    Generate test reservation confirmation data with real business info.
+    Used when YELP_RESERVATIONS_TEST_MODE is enabled.
+    """
+    import uuid
+    
+    # Fetch real business details
+    business = await _fetch_business_for_test(business_id)
+    
+    reservation_id = f"TEST-RES-{uuid.uuid4().hex[:12].upper()}"
+    
+    result = {
+        "reservation_id": reservation_id,
+        "confirmation_url": f"https://www.yelp.com/reservations/{business_id}/confirmed/{reservation_id}",
+        "notes": notes or f"Table for {covers} on {date} at {time}",
+        "is_test_mode": True,
+    }
+    
+    # Add real business data if available
+    if business:
+        result["business"] = {
+            "id": business.get("id"),
+            "name": business.get("name"),
+            "image_url": business.get("image_url"),
+            "url": business.get("url"),
+            "phone": business.get("phone"),
+            "display_phone": business.get("display_phone"),
+            "rating": business.get("rating"),
+            "location": business.get("location"),
+            "coordinates": business.get("coordinates"),
+            "photos": business.get("photos", [])[:3],
+        }
+    
+    return result
+
+
 @chat_agent.tool_plain
 async def yelp_reservation_openings(
     business_id: str,
@@ -426,14 +605,15 @@ async def yelp_reservation_openings(
     Returns:
         Raw JSON from GET /v3/bookings/{business_id}/openings, or an error dict if the request fails.
     """
-    with logfire.span("yelp_reservation_openings_tool", business_id=business_id, date=date, time=time, covers=covers):
-        logfire.info("Tool called: yelp_reservation_openings", business_id=business_id, date=date, time=time, covers=covers)
+    with logfire.span("yelp_reservation_openings_tool", business_id=business_id, date=date, time=time, covers=covers, test_mode=YELP_RESERVATIONS_TEST_MODE):
+        logfire.info("Tool called: yelp_reservation_openings", business_id=business_id, date=date, time=time, covers=covers, test_mode=YELP_RESERVATIONS_TEST_MODE)
         logger.info(
-            "[yelp_reservation_openings] TOOL CALLED business_id=%s date=%s time=%s covers=%d",
+            "[yelp_reservation_openings] TOOL CALLED business_id=%s date=%s time=%s covers=%d test_mode=%s",
             business_id,
             date,
             time,
             covers,
+            YELP_RESERVATIONS_TEST_MODE,
         )
         
         # Validate date is not in the past
@@ -449,6 +629,12 @@ async def yelp_reservation_openings(
             error_msg = f"Invalid date format: {date}. Expected YYYY-MM-DD format."
             logfire.error("Invalid date format", date=date, error=str(e))
             return {"error": True, "error_code": "INVALID_DATE_FORMAT", "message": error_msg}
+        
+        # Return test data if test mode is enabled
+        if YELP_RESERVATIONS_TEST_MODE:
+            logfire.info("Using test mode for reservation openings", business_id=business_id)
+            logger.info("[yelp_reservation_openings] TEST MODE - returning simulated openings")
+            return await _generate_test_openings(business_id, date, time, covers)
         
         if not YELP_API_KEY:
             logfire.error("YELP_API_KEY not configured")
@@ -560,12 +746,19 @@ async def yelp_reservation_hold(
     Returns:
         Raw JSON from POST /v3/bookings/{business_id}/holds including hold_id and reserve_url.
     """
-    with logfire.span("yelp_reservation_hold_tool", business_id=business_id, date=date, time=time, covers=covers):
-        logfire.info("Tool called: yelp_reservation_hold", business_id=business_id, date=date, time=time, covers=covers)
+    with logfire.span("yelp_reservation_hold_tool", business_id=business_id, date=date, time=time, covers=covers, test_mode=YELP_RESERVATIONS_TEST_MODE):
+        logfire.info("Tool called: yelp_reservation_hold", business_id=business_id, date=date, time=time, covers=covers, test_mode=YELP_RESERVATIONS_TEST_MODE)
         logger.info(
-            "[yelp_reservation_hold] TOOL CALLED business_id=%s date=%s time=%s covers=%d",
-            business_id, date, time, covers,
+            "[yelp_reservation_hold] TOOL CALLED business_id=%s date=%s time=%s covers=%d test_mode=%s",
+            business_id, date, time, covers, YELP_RESERVATIONS_TEST_MODE,
         )
+        
+        # Return test data if test mode is enabled
+        if YELP_RESERVATIONS_TEST_MODE:
+            logfire.info("Using test mode for reservation hold", business_id=business_id)
+            logger.info("[yelp_reservation_hold] TEST MODE - returning simulated hold")
+            return await _generate_test_hold(business_id, date, time, covers, unique_id)
+        
         if not YELP_API_KEY:
             logfire.error("YELP_API_KEY not configured")
             return {"error": True, "error_code": "CONFIG_ERROR", "message": "Yelp API is not configured on the server."}
@@ -705,12 +898,19 @@ async def yelp_reservation_book(
     Returns:
         Raw JSON from POST /v3/bookings/{business_id}/reservations including reservation_id.
     """
-    with logfire.span("yelp_reservation_book_tool", business_id=business_id, hold_id=hold_id):
-        logfire.info("Tool called: yelp_reservation_book", business_id=business_id, hold_id=hold_id)
+    with logfire.span("yelp_reservation_book_tool", business_id=business_id, hold_id=hold_id, test_mode=YELP_RESERVATIONS_TEST_MODE):
+        logfire.info("Tool called: yelp_reservation_book", business_id=business_id, hold_id=hold_id, test_mode=YELP_RESERVATIONS_TEST_MODE)
         logger.info(
-            "[yelp_reservation_book] TOOL CALLED business_id=%s hold_id=%s",
-            business_id, hold_id,
+            "[yelp_reservation_book] TOOL CALLED business_id=%s hold_id=%s test_mode=%s",
+            business_id, hold_id, YELP_RESERVATIONS_TEST_MODE,
         )
+        
+        # Return test data if test mode is enabled
+        if YELP_RESERVATIONS_TEST_MODE:
+            logfire.info("Using test mode for reservation booking", business_id=business_id, hold_id=hold_id)
+            logger.info("[yelp_reservation_book] TEST MODE - returning simulated reservation")
+            return await _generate_test_reservation(business_id, hold_id, date, time, covers, first_name, notes)
+        
         if not YELP_API_KEY:
             logfire.error("YELP_API_KEY not configured")
             return {"error": True, "error_code": "CONFIG_ERROR", "message": "Yelp API is not configured on the server."}

@@ -301,13 +301,23 @@ class AppDataService: DataService, ObservableObject {
                         }
                     }
                     
+                    // Parse actions if present (reservation prompts/confirmations)
+                    var actions: [ReservationAction]? = nil
+                    if let actionsData = data["actions"] as? [[String: Any]] {
+                        if let jsonData = try? JSONSerialization.data(withJSONObject: actionsData),
+                           let decodedActions = try? JSONDecoder().decode([ReservationAction].self, from: jsonData) {
+                            actions = decodedActions
+                        }
+                    }
+                    
                     let message = Message(
                         id: messageId,
                         senderId: senderId,
                         content: content,
                         timestamp: timestamp.dateValue(),
                         type: messageType,
-                        businesses: businesses
+                        businesses: businesses,
+                        actions: actions
                     )
                     
                     newMessages.append(message)

@@ -182,6 +182,10 @@ struct ReservationAction: Codable, Hashable, Identifiable {
     let businessId: String
     let businessName: String
     var businessImageUrl: String?
+    var businessAddress: String?
+    var businessPhone: String?
+    var businessRating: Double?
+    var businessUrl: String?
     
     // For reservation_prompt
     var availableTimes: [ReservationTimeSlot]?
@@ -203,6 +207,10 @@ struct ReservationAction: Codable, Hashable, Identifiable {
         case businessId = "business_id"
         case businessName = "business_name"
         case businessImageUrl = "business_image_url"
+        case businessAddress = "business_address"
+        case businessPhone = "business_phone"
+        case businessRating = "business_rating"
+        case businessUrl = "business_url"
         case availableTimes = "available_times"
         case coversRange = "covers_range"
         case requestedDate = "requested_date"

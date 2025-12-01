@@ -613,8 +613,11 @@ async def trigger_ai_response(
         
         # Use businesses already normalized by the orchestrator (if any)
         businesses = [b.model_dump() for b in orchestrator_result.businesses]
+        
+        # Extract actions from orchestrator result
+        actions = [a.model_dump() for a in orchestrator_result.actions] if orchestrator_result.actions else None
 
-        # Create AI message with businesses
+        # Create AI message with businesses and actions
         ai_message = Message(
             id=str(uuid.uuid4()),
             sender_id=AI_USER_ID,
@@ -622,6 +625,7 @@ async def trigger_ai_response(
             timestamp=datetime.utcnow().replace(microsecond=0),
             type="text",
             businesses=businesses if businesses else None,
+            actions=actions,
         )
         
         # Add to room in database
@@ -637,10 +641,11 @@ async def trigger_ai_response(
             "content": ai_message.content,
             "timestamp": ai_message.timestamp,
             "type": ai_message.type,
-            "businesses": businesses if businesses else None
+            "businesses": businesses if businesses else None,
+            "actions": actions,
         })
         
-        print(f"API: AI responded in room {room_id} with {len(businesses)} businesses")
+        print(f"API: AI responded in room {room_id} with {len(businesses)} businesses and {len(actions) if actions else 0} actions")
 
         # If a callback is provided, call it with the response text
         if callback:

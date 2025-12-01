@@ -29,6 +29,7 @@ class Message(BaseModel):
     quick_replies: Optional[List[str]] = None
     map_coordinates: Optional[dict] = None
     businesses: Optional[List[dict]] = None
+    actions: Optional[List[dict]] = None  # Reservation actions for special UI
 
 
 class Room(BaseModel):

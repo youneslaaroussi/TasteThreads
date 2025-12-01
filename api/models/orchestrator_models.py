@@ -50,6 +50,10 @@ class ReservationAction(BaseModel):
     business_id: str
     business_name: str
     business_image_url: Optional[str] = None
+    business_address: Optional[str] = None
+    business_phone: Optional[str] = None
+    business_rating: Optional[float] = None
+    business_url: Optional[str] = None
 
     # For reservation_prompt
     available_times: Optional[List[ReservationTimeSlot]] = None
