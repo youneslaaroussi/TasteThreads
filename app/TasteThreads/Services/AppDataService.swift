@@ -445,13 +445,16 @@ class AppDataService: DataService, ObservableObject {
     }
     
     func connectToRoom(_ roomId: String) {
-        // Skip if already connected to this room
+        // Always ensure the Firestore listener is bound to the requested room.
+        // We intentionally do NOT early‑return when a listener already exists,
+        // because it might still be pointing at a different room.
+        
         if currentRoomId == roomId && messageListener != nil {
-            print("AppDataService: Already connected to room \(roomId)")
-            return
+            print("AppDataService: Reconnecting listener for room \(roomId)")
+        } else {
+            print("AppDataService: Connecting to room \(roomId)")
         }
         
-        print("AppDataService: Connecting to room \(roomId)")
         print("AppDataService: Room exists in array: \(rooms.contains { $0.id == roomId })")
         print("AppDataService: Total rooms in array: \(rooms.count)")
         
@@ -460,7 +463,7 @@ class AppDataService: DataService, ObservableObject {
         
         currentRoomId = roomId
         
-        // Set up Firestore real-time listener
+        // Set up Firestore real-time listener (this will also remove any existing listener)
         setupFirestoreListener(for: roomId)
         listenToTyping(for: roomId)
     }
