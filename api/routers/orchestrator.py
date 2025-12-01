@@ -998,6 +998,31 @@ class ReservationBookRequest(BaseModel):
     notes: Optional[str] = Field(default="", description="Special requests or notes")
 
 
+class ReserveRequest(BaseModel):
+    """Request to make a reservation - room owner only."""
+    room_id: str = Field(description="Room ID - only room owner can make reservations")
+    business_id: str = Field(description="Yelp business id or alias")
+    business_name: str = Field(description="Business name for confirmation")
+    date: str = Field(description="Reservation date in YYYY-MM-DD")
+    time: str = Field(description="Reservation time in HH:MM (24h)")
+    covers: int = Field(default=2, ge=1, le=10, description="Party size from 1 to 10")
+    first_name: str = Field(description="Guest's first name")
+    last_name: str = Field(description="Guest's last name")
+    email: str = Field(description="Guest's email address")
+    phone: str = Field(description="Guest's phone number")
+    notes: Optional[str] = Field(default="", description="Special requests or notes")
+
+
+class ReserveResponse(BaseModel):
+    """Response from reservation - includes hold_id and reservation_id."""
+    success: bool
+    reservation_id: Optional[str] = None
+    confirmation_url: Optional[str] = None
+    hold_id: Optional[str] = None
+    error: Optional[str] = None
+    is_test_mode: bool = False
+
+
 class ReservationResponse(BaseModel):
     reservation_id: str
     confirmation_url: Optional[str] = None
@@ -1045,6 +1070,135 @@ async def complete_reservation(
     except Exception as e:
         print(f"Reservation booking error: {e}")
         raise HTTPException(status_code=500, detail="Failed to complete reservation")
+
+
+@router.post("/reservations/reserve", response_model=ReserveResponse)
+async def make_reservation(
+    request: ReserveRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Make a full reservation (hold + book) in one call.
+    
+    IMPORTANT: Only the room owner can make reservations for a room.
+    This prevents random members from making bookings on behalf of the group.
+    
+    In test mode (YELP_RESERVATIONS_TEST_MODE=true), returns simulated data
+    without calling the real Yelp API.
+    """
+    user_id = user["uid"]
+    room_id = request.room_id.lower()
+    
+    with logfire.span("make_reservation", user_id=user_id, room_id=room_id, business_id=request.business_id, test_mode=YELP_RESERVATIONS_TEST_MODE):
+        logfire.info("Make reservation request", user_id=user_id, room_id=room_id, business_id=request.business_id)
+        
+        # Verify room exists and user is the owner
+        room = db.query(RoomDB).filter(RoomDB.id == room_id).first()
+        if not room:
+            logfire.warn("Room not found", room_id=room_id)
+            raise HTTPException(status_code=404, detail="Room not found")
+        
+        if room.owner_id != user_id:
+            logfire.warn("User is not room owner", user_id=user_id, owner_id=room.owner_id)
+            raise HTTPException(
+                status_code=403, 
+                detail="Only the room owner can make reservations. Ask the room owner to book."
+            )
+        
+        logfire.info("User is room owner, proceeding with reservation", user_id=user_id)
+        
+        # Generate unique_id for Yelp API
+        import uuid as uuid_module
+        unique_id = f"{user_id}-{uuid_module.uuid4().hex[:8]}"
+        
+        try:
+            # Step 1: Create a hold
+            logfire.info("Creating reservation hold", business_id=request.business_id)
+            hold_data = await yelp_reservation_hold(
+                business_id=request.business_id,
+                date=request.date,
+                time=request.time,
+                covers=request.covers,
+                unique_id=unique_id,
+            )
+            
+            # Check for errors in hold response
+            if hold_data.get("error"):
+                error_msg = hold_data.get("message", "Failed to create hold")
+                logfire.error("Hold creation failed", error=error_msg)
+                return ReserveResponse(
+                    success=False,
+                    error=error_msg,
+                    is_test_mode=YELP_RESERVATIONS_TEST_MODE,
+                )
+            
+            hold_id = hold_data.get("hold_id")
+            if not hold_id:
+                logfire.error("No hold_id in response", hold_data=hold_data)
+                return ReserveResponse(
+                    success=False,
+                    error="Failed to get hold ID from Yelp",
+                    is_test_mode=YELP_RESERVATIONS_TEST_MODE,
+                )
+            
+            logfire.info("Hold created successfully", hold_id=hold_id)
+            
+            # Step 2: Complete the reservation
+            logfire.info("Completing reservation", hold_id=hold_id)
+            book_data = await yelp_reservation_book(
+                business_id=request.business_id,
+                hold_id=hold_id,
+                date=request.date,
+                time=request.time,
+                covers=request.covers,
+                first_name=request.first_name,
+                last_name=request.last_name,
+                email=request.email,
+                phone=request.phone,
+                unique_id=unique_id,
+                notes=request.notes or "",
+            )
+            
+            # Check for errors in book response
+            if book_data.get("error"):
+                error_msg = book_data.get("message", "Failed to complete reservation")
+                logfire.error("Booking failed", error=error_msg, hold_id=hold_id)
+                return ReserveResponse(
+                    success=False,
+                    error=error_msg,
+                    hold_id=hold_id,
+                    is_test_mode=YELP_RESERVATIONS_TEST_MODE,
+                )
+            
+            reservation_id = book_data.get("reservation_id")
+            confirmation_url = book_data.get("confirmation_url")
+            
+            logfire.info(
+                "Reservation completed successfully",
+                reservation_id=reservation_id,
+                confirmation_url=confirmation_url,
+                is_test_mode=YELP_RESERVATIONS_TEST_MODE,
+            )
+            
+            return ReserveResponse(
+                success=True,
+                reservation_id=reservation_id,
+                confirmation_url=confirmation_url,
+                hold_id=hold_id,
+                is_test_mode=book_data.get("is_test_mode", YELP_RESERVATIONS_TEST_MODE),
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logfire.error("Unexpected error in make_reservation", error=str(e))
+            logger.exception("Reservation error: %s", e)
+            return ReserveResponse(
+                success=False,
+                error=f"An unexpected error occurred: {str(e)}",
+                is_test_mode=YELP_RESERVATIONS_TEST_MODE,
+            )
 
 
 class OrchestratorChatRequest(BaseModel):

@@ -11,7 +11,8 @@ import Combine
 struct ReservationSheet: View {
     let action: ReservationAction
     let userProfile: User
-    let onConfirm: (ReservationBookingDetails) -> Void
+    let room: Room?
+    let onConfirm: (ReservationBookingDetails, ReserveResponse?) -> Void
     
     @Environment(\.dismiss) var dismiss
     
@@ -25,12 +26,23 @@ struct ReservationSheet: View {
     @State private var notes: String = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var reservationCancellable: AnyCancellable?
+    @State private var reservationResponse: ReserveResponse?
+    @State private var showSuccessState = false
+    @State private var confirmedBookingDetails: ReservationBookingDetails?
     
     private let accentColor = Color(red: 0.4, green: 0.3, blue: 0.9)
     
-    init(action: ReservationAction, userProfile: User, onConfirm: @escaping (ReservationBookingDetails) -> Void) {
+    /// Check if the current user is the room owner
+    private var isRoomOwner: Bool {
+        guard let room = room else { return false }
+        return userProfile.id == room.ownerId
+    }
+    
+    init(action: ReservationAction, userProfile: User, room: Room? = nil, onConfirm: @escaping (ReservationBookingDetails, ReserveResponse?) -> Void) {
         self.action = action
         self.userProfile = userProfile
+        self.room = room
         self.onConfirm = onConfirm
         
         // Initialize state from action and profile
@@ -79,47 +91,149 @@ struct ReservationSheet: View {
     
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Restaurant header
-                    restaurantHeader
+            if showSuccessState, let response = reservationResponse {
+                // Success state - show confirmation
+                successView(response: response)
+            } else {
+                // Booking form
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Restaurant header
+                        restaurantHeader
+                        
+                        // Date picker
+                        dateSection
+                        
+                        // Time slots
+                        timeSection
+                        
+                        // Party size
+                        partySizeSection
+                        
+                        // Contact info
+                        contactSection
+                        
+                        // Special requests
+                        notesSection
+                        
+                        // Error message
+                        if let error = errorMessage {
+                            Text(error)
+                                .font(.subheadline)
+                                .foregroundStyle(.red)
+                                .padding()
+                                .background(Color.red.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        
+                        // Confirm button
+                        confirmButton
+                    }
+                    .padding()
+                }
+                .background(Color(uiColor: .systemGroupedBackground))
+                .navigationTitle("Book a Table")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Success View
+    
+    private func successView(response: ReserveResponse) -> some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                // Success header
+                VStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(Color(red: 0.2, green: 0.7, blue: 0.4))
+                            .frame(width: 80, height: 80)
+                        
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 40, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.top, 20)
                     
-                    // Date picker
-                    dateSection
+                    Text("Reservation Confirmed!")
+                        .font(.title2)
+                        .fontWeight(.bold)
                     
-                    // Time slots
-                    timeSection
-                    
-                    // Party size
-                    partySizeSection
-                    
-                    // Contact info
-                    contactSection
-                    
-                    // Special requests
-                    notesSection
-                    
-                    // Error message
-                    if let error = errorMessage {
-                        Text(error)
-                            .font(.subheadline)
-                            .foregroundStyle(.red)
-                            .padding()
-                            .background(Color.red.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text(action.businessName)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 20)
+                
+                // Confirmation details card
+                VStack(spacing: 16) {
+                    if let details = confirmedBookingDetails {
+                        let slot = ReservationTimeSlot(date: details.date, time: details.time)
+                        DetailRow(icon: "calendar", label: "Date", value: slot.formattedDate)
+                        DetailRow(icon: "clock", label: "Time", value: slot.formattedTime)
+                        DetailRow(icon: "person.2", label: "Party size", value: "\(details.covers) guests")
+                    } else if let selectedTime = selectedTime {
+                        DetailRow(icon: "calendar", label: "Date", value: selectedTime.formattedDate)
+                        DetailRow(icon: "clock", label: "Time", value: selectedTime.formattedTime)
+                        DetailRow(icon: "person.2", label: "Party size", value: "\(covers) guests")
+                    } else if let time = action.availableTimes?.first {
+                        DetailRow(icon: "calendar", label: "Date", value: time.formattedDate)
+                        DetailRow(icon: "clock", label: "Time", value: time.formattedTime)
+                        DetailRow(icon: "person.2", label: "Party size", value: "\(covers) guests")
                     }
                     
-                    // Confirm button
-                    confirmButton
+                    if let reservationId = response.reservation_id {
+                        DetailRow(icon: "number", label: "Confirmation", value: String(reservationId.prefix(12)).uppercased())
+                    }
+                    
+                    if let address = action.businessAddress {
+                        DetailRow(icon: "mappin.circle", label: "Address", value: address)
+                    }
+                    
+                    if let phone = action.businessPhone {
+                        DetailRow(icon: "phone", label: "Phone", value: phone)
+                    }
                 }
-                .padding()
+                .padding(20)
+                .background(Color(uiColor: .systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+                
+                // Action buttons
+                if let confirmationUrl = response.confirmation_url, let url = URL(string: confirmationUrl) {
+                    Link(destination: url) {
+                        HStack {
+                            Image(systemName: "arrow.up.right.square")
+                            Text("View on Yelp")
+                                .fontWeight(.semibold)
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color(red: 0.85, green: 0.11, blue: 0.09))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .padding(.horizontal)
+                }
             }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("Book a Table")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+            .padding()
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("Reservation Confirmed")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") {
+                    if let details = confirmedBookingDetails {
+                        onConfirm(details, response)
+                    }
+                    dismiss()
                 }
             }
         }
@@ -307,40 +421,88 @@ struct ReservationSheet: View {
     }
     
     private var confirmButton: some View {
-        Button(action: handleConfirm) {
-            HStack {
-                if isLoading {
-                    ProgressView()
-                        .tint(.white)
-                } else {
-                    Image(systemName: "checkmark.circle.fill")
-                    Text("Confirm Reservation")
-                        .fontWeight(.semibold)
+        VStack(spacing: 12) {
+            // Show warning if user is not room owner
+            if !isRoomOwner && room != nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Only the room owner can make reservations")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
+                .padding(12)
+                .background(Color.orange.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(canConfirm ? accentColor : Color.gray)
-            .foregroundStyle(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            
+            Button(action: handleConfirm) {
+                HStack {
+                    if isLoading {
+                        ProgressView()
+                            .tint(.white)
+                        Text("Booking...")
+                            .fontWeight(.semibold)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("Confirm Reservation")
+                            .fontWeight(.semibold)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(canConfirm ? accentColor : Color.gray)
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .disabled(!canConfirm || isLoading)
         }
-        .disabled(!canConfirm || isLoading)
     }
     
     // MARK: - Logic
     
     private var canConfirm: Bool {
-        selectedTime != nil &&
-        !firstName.isEmpty &&
-        !lastName.isEmpty &&
-        !email.isEmpty &&
-        !phone.isEmpty
+        // Must be room owner (if room exists) and have all required fields
+        let hasRequiredFields = selectedTime != nil &&
+            !firstName.isEmpty &&
+            !lastName.isEmpty &&
+            !email.isEmpty &&
+            !phone.isEmpty
+        
+        // If room exists, must be owner
+        if room != nil {
+            return hasRequiredFields && isRoomOwner
+        }
+        
+        return hasRequiredFields
     }
     
     private func handleConfirm() {
         guard let time = selectedTime else { return }
+        guard let room = room else {
+            // No room - just call onConfirm with details (legacy behavior)
+            let details = ReservationBookingDetails(
+                businessId: action.businessId,
+                businessName: action.businessName,
+                date: time.date,
+                time: time.time,
+                covers: covers,
+                firstName: firstName,
+                lastName: lastName,
+                email: email,
+                phone: phone,
+                notes: notes.isEmpty ? nil : notes
+            )
+            onConfirm(details, nil)
+            return
+        }
         
-        let details = ReservationBookingDetails(
+        // Make the actual API call
+        isLoading = true
+        errorMessage = nil
+        
+        reservationCancellable = APIService.shared.makeReservation(
+            roomId: room.id,
             businessId: action.businessId,
             businessName: action.businessName,
             date: time.date,
@@ -352,8 +514,46 @@ struct ReservationSheet: View {
             phone: phone,
             notes: notes.isEmpty ? nil : notes
         )
-        
-        onConfirm(details)
+        .receive(on: DispatchQueue.main)
+        .sink(
+            receiveCompletion: { [self] completion in
+                isLoading = false
+                if case .failure(let error) = completion {
+                    if let apiError = error as? APIError {
+                        errorMessage = apiError.localizedDescription
+                    } else {
+                        errorMessage = error.localizedDescription
+                    }
+                }
+            },
+            receiveValue: { [self] response in
+                isLoading = false
+                
+                if response.success {
+                    // Success! Store details and show confirmation state
+                    let details = ReservationBookingDetails(
+                        businessId: action.businessId,
+                        businessName: action.businessName,
+                        date: time.date,
+                        time: time.time,
+                        covers: covers,
+                        firstName: firstName,
+                        lastName: lastName,
+                        email: email,
+                        phone: phone,
+                        notes: notes.isEmpty ? nil : notes
+                    )
+                    confirmedBookingDetails = details
+                    reservationResponse = response
+                    withAnimation {
+                        showSuccessState = true
+                    }
+                } else {
+                    // API returned error
+                    errorMessage = response.error ?? "Failed to make reservation"
+                }
+            }
+        )
     }
 }
 
@@ -456,12 +656,24 @@ struct ReservationBookingDetails {
         requestedCovers: 2
     )
     
-    let sampleUser = User(id: "test", name: "John", isCurrentUser: true, firstName: "John", lastName: "Doe", email: "john@example.com")
+    let sampleUser = User(id: "test-owner", name: "John", isCurrentUser: true, firstName: "John", lastName: "Doe", email: "john@example.com")
+    
+    let sampleRoom = Room(
+        id: "test-room",
+        name: "Test Room",
+        members: [sampleUser],
+        messages: [],
+        itinerary: [],
+        isPublic: false,
+        joinCode: "ABC123",
+        ownerId: "test-owner"  // Same as sampleUser.id
+    )
     
     return ReservationSheet(
         action: sampleAction,
         userProfile: sampleUser,
-        onConfirm: { _ in }
+        room: sampleRoom,
+        onConfirm: { _, _ in }
     )
 }
 

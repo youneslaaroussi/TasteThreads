@@ -419,6 +419,40 @@ class APIService: ObservableObject {
             return try JSONDecoder().decode(ReservationBookResponse.self, from: data)
         }
     }
+    
+    /// Make a reservation (hold + book combined) - only room owner can call this
+    func makeReservation(
+        roomId: String,
+        businessId: String,
+        businessName: String,
+        date: String,
+        time: String,
+        covers: Int,
+        firstName: String,
+        lastName: String,
+        email: String,
+        phone: String,
+        notes: String? = nil
+    ) -> AnyPublisher<ReserveResponse, Error> {
+        return futureRequest {
+            guard let url = URL(string: "\(self.aiBaseURL)/reservations/reserve") else { throw URLError(.badURL) }
+            let body = ReserveRequest(
+                room_id: roomId,
+                business_id: businessId,
+                business_name: businessName,
+                date: date,
+                time: time,
+                covers: covers,
+                first_name: firstName,
+                last_name: lastName,
+                email: email,
+                phone: phone,
+                notes: notes
+            )
+            let data = try await self.authenticatedRequest(url: url, method: "POST", body: body)
+            return try JSONDecoder().decode(ReserveResponse.self, from: data)
+        }
+    }
 }
 
 extension JSONDecoder {
@@ -1015,4 +1049,29 @@ struct ReservationBookResponse: Codable {
     let reservation_id: String
     let confirmation_url: String?
     let notes: String?
+}
+
+// MARK: - Reserve (Combined Hold + Book) Request/Response
+
+struct ReserveRequest: Codable {
+    let room_id: String
+    let business_id: String
+    let business_name: String
+    let date: String
+    let time: String
+    let covers: Int
+    let first_name: String
+    let last_name: String
+    let email: String
+    let phone: String
+    let notes: String?
+}
+
+struct ReserveResponse: Codable {
+    let success: Bool
+    let reservation_id: String?
+    let confirmation_url: String?
+    let hold_id: String?
+    let error: String?
+    let is_test_mode: Bool?
 }

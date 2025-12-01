@@ -414,15 +414,16 @@ struct MessageBubble: View {
                 ReservationSheet(
                     action: action,
                     userProfile: dataService.currentUser,
-                    onConfirm: { details in
-                        handleReservationConfirm(details: details)
+                    room: AppDataService.shared.currentRoom,
+                    onConfirm: { details, response in
+                        handleReservationConfirm(details: details, response: response)
                     }
                 )
             }
         }
     }
     
-    private func handleReservationConfirm(details: ReservationBookingDetails) {
+    private func handleReservationConfirm(details: ReservationBookingDetails, response: ReserveResponse?) {
         showReservationSheet = false
         
         if let action = selectedReservationAction {
