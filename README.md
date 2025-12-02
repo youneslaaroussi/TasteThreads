@@ -163,7 +163,7 @@ Every agent turn produces a Logfire trace capturing:
 We’ll drop the annotated screenshot here before final submission to highlight the discovery → reservation pipeline.
 
 <div align="center">
-  <img src="./media/logfire-us.pydantic.dev_youneslaaroussi_starter-project.png" alt="Logfire Trace Screenshot" height="400" />
+  <img src="./media/logfire-us.pydantic.dev_youneslaaroussi_starter-project.png" alt="Logfire Trace Screenshot" />
 </div>
 
 ---
