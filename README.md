@@ -67,7 +67,7 @@ We built TasteThreads to showcase what happens when Yelp's new conversational + 
 TasteThreads is deliberately AI-forward: the app exists to prove that a single, well-instrumented agent plus Yelp's APIs can replace the messy "copy Yelp link → argue → open OpenTable" dance with something conversational, verifiable, and instantly actionable.
 
 <div align="center">
-<img src="./Media/TasteThreads Architectural Diagram.png" alt="TasteThreads AI Overview"/>
+<img src="./media/TasteThreads Architectural Diagram.png" alt="TasteThreads AI Overview"/>
 </div>
 
 ---
