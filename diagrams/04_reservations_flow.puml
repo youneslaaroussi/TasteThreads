@@ -1,0 +1,104 @@
+@startuml TasteThreadsReservations
+skinparam dpi 300
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 11
+skinparam defaultFontColor #232F3E
+skinparam roundcorner 4
+skinparam shadowing false
+skinparam linetype ortho
+
+skinparam component {
+  BackgroundColor #146EB4
+  BorderColor #0F4C75
+  BorderThickness 2
+  FontSize 10
+  FontStyle bold
+  FontColor #FFFFFF
+  Padding 8
+}
+
+skinparam database {
+  BackgroundColor #F58536
+  BorderColor #D2691E
+  BorderThickness 2
+  FontSize 10
+  FontStyle bold
+  FontColor #FFFFFF
+  Padding 8
+}
+
+skinparam package {
+  BackgroundColor #E8F4F8
+  BorderColor #146EB4
+  BorderThickness 2
+  FontSize 12
+  FontStyle bold
+  FontColor #146EB4
+  Padding 15
+}
+
+skinparam arrow {
+  Thickness 2
+  Color #232F3E
+  FontSize 12
+}
+
+skinparam nodesep 60
+skinparam ranksep 80
+skinparam packagePadding 15
+
+package "iOS Client" #E8F4F8 {
+  component "Chat Input\n\"Book a patio table\"" as chat_input
+  component "Reservation Card\nSlots + Party Selector" as reservation_card
+  component "Hold CTA\nSlot Tap" as hold_button
+  component "Confirm CTA" as confirm_button
+  chat_input -[hidden]- reservation_card
+  reservation_card -[hidden]- hold_button
+  hold_button -[hidden]- confirm_button
+}
+
+package "Application Layer" #E8F4F8 {
+  component "Tess Orchestrator\nIntent Detection" as orchestrator
+  component "Openings Tool" as openings_tool
+  component "Hold Tool" as hold_tool
+  component "Book Tool" as book_tool
+  database "Reservation Cache\nhold_id + room_id" as cache
+  orchestrator -[hidden]- openings_tool
+  openings_tool -[hidden]- hold_tool
+  hold_tool -[hidden]- book_tool
+}
+
+package "External Services" #E8F4F8 {
+  component "/v3/bookings/{id}/openings" as yelp_openings
+  component "/v3/bookings/{id}/holds" as yelp_hold
+  component "/v3/bookings/{id}/reservations" as yelp_reserve
+  yelp_openings -[hidden]- yelp_hold
+  yelp_hold -[hidden]- yelp_reserve
+}
+
+' Discovery flow
+chat_input --> orchestrator : Intent
+orchestrator --> openings_tool : Call Tool
+openings_tool --> yelp_openings : Request
+yelp_openings --> openings_tool : Slots
+openings_tool --> orchestrator : Result
+orchestrator --> reservation_card : Slots
+
+' Hold flow
+reservation_card --> hold_button : Tap
+hold_button --> hold_tool : /hold
+hold_tool --> yelp_hold : API Call
+yelp_hold --> hold_tool : Hold ID
+hold_tool --> cache : Store
+hold_tool --> reservation_card : Confirmed
+
+' Booking flow
+confirm_button --> book_tool : /reserve
+book_tool ..> cache : Read
+book_tool --> yelp_reserve : Booking
+yelp_reserve --> book_tool : Confirmation
+book_tool --> orchestrator : Payload
+orchestrator --> chat_input : Message
+
+@enduml

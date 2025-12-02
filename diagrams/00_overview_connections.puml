@@ -1,0 +1,83 @@
+@startuml TasteThreadsConnections
+skinparam dpi 300
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 11
+skinparam defaultFontColor #232F3E
+skinparam roundcorner 5
+skinparam shadowing false
+skinparam linetype ortho
+
+skinparam rectangle {
+  BackgroundColor #F9F9F9
+  BorderColor #146EB4
+  BorderThickness 2
+  FontSize 11
+  FontStyle bold
+  FontColor #146EB4
+  Padding 8
+}
+
+skinparam arrow {
+  Thickness 2
+  Color #232F3E
+  FontSize 12
+}
+
+skinparam note {
+  FontSize 9
+  Padding 5
+}
+
+skinparam nodesep 50
+skinparam ranksep 60
+
+rectangle "CLIENT LAYER\n(iOS App, Firebase Auth)" as client #E3F2FD
+
+rectangle "APPLICATION LAYER\n(API Gateway, Orchestrator,\nContext Provider)" as app #F3E5F5
+
+rectangle "DATA LAYER\n(PostgreSQL, Redis)" as data #FFF3E0
+
+rectangle "ORCHESTRATOR TOOLS\n(Openings, Hold, Book, Fusion)" as tools #E8F5E9
+
+rectangle "YELP SERVICES\n(AI Chat + APIs)" as yelp #FCE4EC
+
+rectangle "MONITORING\n(Logfire)" as monitoring #F1F8E9
+
+' Main flow connections
+client --> app : REST/WebSocket\nJWT Auth
+app --> data : Persist & Query
+app --> tools : Tool Calls
+tools --> yelp : API Calls
+app --> yelp : AI Chat Queries
+app --> monitoring : Traces
+
+' Return flows
+data ..> app : State Updates
+yelp ..> tools : API Responses
+yelp ..> app : AI Responses
+tools ..> app : Tool Results
+data ..> client : Real-time Broadcast
+
+note bottom of client
+  Client: iOS App, Firebase Auth
+end note
+
+note bottom of app
+  App: API Gateway, Orchestrator, Context Provider
+end note
+
+note bottom of data
+  Data: PostgreSQL, Redis
+end note
+
+note bottom of tools
+  Tools: Openings, Hold, Book, Fusion
+end note
+
+note bottom of yelp
+  Yelp: AI Chat, Reservations API, Fusion API
+end note
+
+@enduml
+

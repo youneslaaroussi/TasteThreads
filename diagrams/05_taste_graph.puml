@@ -1,0 +1,83 @@
+@startuml TasteThreadsTasteGraph
+skinparam dpi 300
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 11
+skinparam defaultFontColor #232F3E
+skinparam roundcorner 4
+skinparam shadowing false
+skinparam linetype ortho
+
+skinparam component {
+  BackgroundColor #146EB4
+  BorderColor #0F4C75
+  BorderThickness 2
+  FontSize 11
+  FontStyle bold
+  FontColor #FFFFFF
+  Padding 8
+}
+
+skinparam database {
+  BackgroundColor #F58536
+  BorderColor #D2691E
+  BorderThickness 2
+  FontSize 11
+  FontStyle bold
+  FontColor #FFFFFF
+  Padding 8
+}
+
+skinparam package {
+  BackgroundColor #E8F4F8
+  BorderColor #146EB4
+  BorderThickness 2
+  FontSize 13
+  FontStyle bold
+  FontColor #146EB4
+  Padding 15
+}
+
+skinparam arrow {
+  Thickness 2
+  Color #232F3E
+  FontSize 11
+}
+
+skinparam nodesep 40
+skinparam ranksep 50
+skinparam packagePadding 10
+
+package "Data Sources" #E8F4F8 {
+  component "Saved Places" as saved
+  component "AI Discoveries" as ai_disc
+  component "Location" as location
+  component "Preferences" as prefs
+}
+
+package "Processing" #E8F4F8 {
+  component "Context Builder" as saved_ctx
+  component "Persona Agent" as persona_agent
+  database "Taste Profile" as graph_store
+}
+
+package "Orchestration" #E8F4F8 {
+  component "Context Provider" as context_provider
+  component "AgentDeps" as agent_deps
+  component "Tess" as tess
+}
+
+' Main flows
+saved --> saved_ctx
+ai_disc --> saved_ctx
+saved_ctx --> graph_store
+ai_disc ..> persona_agent
+persona_agent --> graph_store
+graph_store --> context_provider
+location --> context_provider
+prefs --> context_provider
+context_provider --> agent_deps
+agent_deps --> tess
+tess --> [Response]
+
+@enduml

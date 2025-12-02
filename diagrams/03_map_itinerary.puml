@@ -1,0 +1,96 @@
+@startuml TasteThreadsMap
+skinparam dpi 300
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 11
+skinparam defaultFontColor #232F3E
+skinparam roundcorner 4
+skinparam shadowing false
+skinparam linetype ortho
+
+skinparam component {
+  BackgroundColor #146EB4
+  BorderColor #0F4C75
+  BorderThickness 2
+  FontSize 10
+  FontStyle bold
+  FontColor #FFFFFF
+  Padding 8
+}
+
+skinparam database {
+  BackgroundColor #F58536
+  BorderColor #D2691E
+  BorderThickness 2
+  FontSize 10
+  FontStyle bold
+  FontColor #FFFFFF
+  Padding 8
+}
+
+skinparam package {
+  BackgroundColor #E8F4F8
+  BorderColor #146EB4
+  BorderThickness 2
+  FontSize 12
+  FontStyle bold
+  FontColor #146EB4
+  Padding 15
+}
+
+skinparam arrow {
+  Thickness 2
+  Color #232F3E
+  FontSize 12
+}
+
+skinparam note {
+  BackgroundColor #FFF9E6
+  BorderColor #FFB300
+  BorderThickness 2
+  FontSize 11
+}
+
+skinparam nodesep 60
+skinparam ranksep 70
+skinparam packagePadding 15
+
+package "Backend Pipeline" #E8F4F8 {
+  component "Tess Response" as tess
+  component "Yelp Fusion API" as enrichment
+  database "PostgreSQL" as postgres
+  tess -[hidden]- enrichment
+  enrichment -[hidden]- postgres
+}
+
+package "iOS Rendering" #E8F4F8 {
+  component "RoomViewModel" as store
+  component "MapKit Layer" as mapkit
+  component "Business Sheet" as sheet
+  component "Itinerary Drawer" as itinerary
+  store -[hidden]- mapkit
+  mapkit -[hidden]- sheet
+  sheet -[hidden]- itinerary
+}
+
+note bottom of mapkit
+  **Legend:**
+  AI suggestion = sparkle
+  Itinerary = bold time
+  Saved = heart overlay
+end note
+
+' Horizontal data pipeline flows
+tess -right-> enrichment : Business ID
+enrichment -left-> tess : Metadata
+tess -right-> postgres : Append
+postgres -right-> store : Publisher
+
+' Horizontal rendering flows
+store -right-> mapkit : Markers
+store -right-> itinerary : List Data
+mapkit -right-> sheet : Tap
+sheet -right-> itinerary : Notes/Votes
+itinerary -left-> postgres : Persist
+
+@enduml

@@ -1,0 +1,105 @@
+@startuml TasteThreadsRealtime
+skinparam dpi 300
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 11
+skinparam defaultFontColor #232F3E
+skinparam roundcorner 4
+skinparam shadowing false
+skinparam linetype ortho
+
+skinparam component {
+  BackgroundColor #146EB4
+  BorderColor #0F4C75
+  BorderThickness 2
+  FontSize 10
+  FontStyle bold
+  FontColor #FFFFFF
+  Padding 8
+}
+
+skinparam database {
+  BackgroundColor #F58536
+  BorderColor #D2691E
+  BorderThickness 2
+  FontSize 10
+  FontStyle bold
+  FontColor #FFFFFF
+  Padding 8
+}
+
+skinparam package {
+  BackgroundColor #E8F4F8
+  BorderColor #146EB4
+  BorderThickness 2
+  FontSize 12
+  FontStyle bold
+  FontColor #146EB4
+  Padding 15
+}
+
+skinparam arrow {
+  Thickness 2
+  Color #232F3E
+  FontSize 12
+}
+
+skinparam nodesep 60
+skinparam ranksep 80
+skinparam packagePadding 15
+
+package "iOS Clients" #E8F4F8 {
+  component "User A\nSwiftUI Chat" as user_a
+  component "User B\nMapKit View" as user_b
+  component "Tess Avatar\nAI Presence" as tess_avatar
+  user_a -[hidden]- user_b
+  user_b -[hidden]- tess_avatar
+}
+
+package "Application Layer" #E8F4F8 {
+  component "WebSocket Router\n/api/v1/rooms/ws" as ws_router
+  component "REST Router\nMessages · Itinerary" as rest_router
+  component "Tess SSE Stream\nServer-Sent Events" as tess_stream
+  component "Tess Orchestrator\nGPT-4o-mini Planner" as orchestrator
+  database "Redis Pub/Sub\nBroadcast" as redis
+  database "PostgreSQL\nRooms · Itinerary" as postgres
+  ws_router -[hidden]- rest_router
+  tess_stream -[hidden]- orchestrator
+  redis -[hidden]- postgres
+}
+
+package "External Services" #E8F4F8 {
+  component "Yelp AI Chat API\n/ai/chat/v2" as ai_chat
+  component "Yelp Reservations API\nOpenings · Hold · Book" as reservations
+  ai_chat -[hidden]- reservations
+}
+
+' Real-time flows
+user_a --> ws_router : Messages
+ws_router --> postgres : Persist
+ws_router --> redis : Publish
+redis ..> user_a : Broadcast
+redis ..> user_b : Broadcast
+
+' Itinerary flows
+rest_router ..> postgres : Itinerary
+postgres ..> user_b : Map Data
+
+' AI flows
+ws_router --> orchestrator : Trigger
+orchestrator --> tess_stream : Stream
+tess_stream --> tess_avatar : Typing
+tess_stream ..> user_a : SSE
+tess_stream ..> user_b : SSE
+
+' Yelp API flows
+orchestrator --> ai_chat : Discovery
+ai_chat --> orchestrator : Results
+orchestrator --> reservations : Bookings
+reservations --> orchestrator : Confirmations
+
+' Response flows
+orchestrator --> redis : Publish
+orchestrator ..> postgres : Context
+
+@enduml

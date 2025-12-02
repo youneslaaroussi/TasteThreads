@@ -1,0 +1,66 @@
+@startuml TasteThreadsData
+skinparam dpi 300
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam defaultFontColor #232F3E
+skinparam roundcorner 5
+skinparam shadowing false
+skinparam linetype ortho
+
+skinparam database {
+  BackgroundColor #F58536
+  BorderColor #D2691E
+  BorderThickness 2
+  FontSize 12
+  FontStyle bold
+  FontColor #FFFFFF
+  Padding 12
+}
+
+skinparam component {
+  BackgroundColor #146EB4
+  BorderColor #0F4C75
+  BorderThickness 2
+  FontSize 12
+  FontStyle bold
+  FontColor #FFFFFF
+  Padding 12
+}
+
+skinparam package {
+  BackgroundColor #FFF3E0
+  BorderColor #146EB4
+  BorderThickness 3
+  FontSize 14
+  FontStyle bold
+  FontColor #146EB4
+  Padding 20
+}
+
+skinparam arrow {
+  Thickness 2
+  Color #232F3E
+  FontSize 11
+}
+
+skinparam nodesep 100
+skinparam ranksep 120
+
+package "DATA LAYER" #FFF3E0 {
+  database "PostgreSQL\nRooms · Itinerary · Chat Sessions" as postgres
+  database "Redis Cache\nPub/Sub Message Fan-out" as redis
+  postgres -[hidden]- redis
+}
+
+component "API Gateway" as api_gateway
+component "Orchestrator" as orchestrator
+component "Context Provider" as context_provider
+
+api_gateway --> postgres : Persist Messages
+orchestrator --> postgres : Chat Sessions
+postgres --> context_provider : Room State
+api_gateway --> redis : Publish Events
+
+@enduml
+
